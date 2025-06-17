@@ -258,7 +258,7 @@ hh:mm:ss - hh:mm:ss - title - description
 - [DONE] Time loading interface (UI)
 - [DONE] Simple manual time input (placeholder only)
 - [DONE] Main editor layout (UI)
-- [] Progress window (UI)
+- [DONE] Progress window (UI)
 
 ### Phase 2.5 (Must-Have Enhancements) 🔄
 - [ ] Syntax highlighting for manual input
