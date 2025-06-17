@@ -318,10 +318,22 @@ class VideoPreviewComponent(ctk.CTkFrame):
     def on_export_single(self):
         """Handle export single cut"""
         print(f"🎬 Export single cut: {self.selected_cut.get('title', 'Unknown') if self.selected_cut else 'None'}")
+        
+        # Import here to avoid circular imports
+        from .progress_dialog import ProgressDialog
+        
+        # Open progress dialog
+        progress_dialog = ProgressDialog(self.winfo_toplevel(), export_type="single")
     
     def on_export_all(self):
         """Handle export all cuts"""
         print("🎬 Export all cuts")
+        
+        # Import here to avoid circular imports
+        from .progress_dialog import ProgressDialog
+        
+        # Open progress dialog
+        progress_dialog = ProgressDialog(self.winfo_toplevel(), export_type="all")
     
     def on_quality_settings(self):
         """Handle quality settings"""
