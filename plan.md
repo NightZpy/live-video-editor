@@ -1,0 +1,465 @@
+# 📋 Development Plan - Live Video Editor with Modern UI
+
+## 🎯 Technology Stack
+- **Frontend**: CustomTkinter (modern interface with dark theme)
+- **Backend**: Python 3.8+
+- **Video Processing**: FFmpeg-python
+- **LLM Integration**: OpenAI API / Anthropic Claude API
+- **File Management**: pathlib, os
+- **Video Preview**: opencv-python, PIL
+
+## 🏗️ Project Structure
+
+```
+live-video-editor/
+├── src/
+│   ├── ui/
+│   │   ├── __init__.py
+│   │   ├── main_window.py
+│   │   ├── components/
+│   │   │   ├── __init__.py
+│   │   │   ├── video_loader.py
+│   │   │   ├── time_input.py
+│   │   │   ├── cuts_list.py
+│   │   │   ├── video_preview.py
+│   │   │   └── progress_dialog.py
+│   │   └── styles/
+│   │       ├── __init__.py
+│   │       └── theme.py
+│   ├── core/
+│   │   ├── __init__.py
+│   │   ├── video_processor.py
+│   │   ├── time_parser.py
+│   │   └── llm_integration.py
+│   └── utils/
+│       ├── __init__.py
+│       ├── file_utils.py
+│       └── validators.py
+├── assets/
+│   ├── icons/
+│   └── fonts/
+├── requirements.txt
+├── main.py
+└── README.md
+```
+
+## 📱 Development Phases
+
+### PHASE 1: Initial Setup and Base UI (Days 1-2)
+
+#### 1.1 Environment Setup
+```python
+# requirements.txt
+customtkinter==5.2.0
+ffmpeg-python==0.2.0
+opencv-python==4.8.1.78
+Pillow==10.0.1
+openai==1.3.0
+python-dotenv==1.0.0
+```
+
+#### 1.2 Base Structure and Theme
+- Create modern dark theme system
+- Configure responsive main window
+- Implement navigation between phases
+
+### PHASE 2: UI Without Functionality (Days 3-5)
+
+#### 2.1 Phase 1 - Video Loading
+```python
+# Main window with:
+# - Elegant drag & drop area
+# - Large video icon
+# - Text "Drag your video here or click to select"
+# - Supported formats: MP4, AVI, MOV, MKV
+# - Hover animations
+```
+
+#### 2.2 Phase 2.1 - Time Loading
+```python
+# - Drag & drop area for text files
+# - Stylized "Manual" button
+# - "Automatic (LLM)" button
+# - Visual state indicators
+```
+
+#### 2.3 Phase 2.2 - Manual Input
+```python
+# - Simple TextArea with placeholder showing format example
+# - "Process" button with states
+# - Basic validation on submit
+```
+
+#### 2.4 Phase 3 - Main Editor
+```python
+# Main layout divided:
+# - Left panel: Cuts list (30%)
+# - Right panel: Preview and controls (70%)
+#   - Interactive timeline
+#   - Selected cut information
+#   - Export controls
+```
+
+#### 2.5 Phase 4 - Progress Window
+```python
+# - Animated progress bar
+# - Current file name
+# - Estimated remaining time
+# - Cancel option
+```
+
+### PHASE 3: Core Functionality Implementation (Days 6-10)
+
+#### 3.1 Video Processing
+- FFmpeg integration
+- Metadata extraction
+- Thumbnail generation
+- Segment preview
+
+#### 3.2 Time Parser
+- Format validation `hh:mm:ss - hh:mm:ss - title - description`
+- JSON conversion
+- Descriptive error handling
+
+#### 3.3 LLM Integration
+- API connection
+- Prompt engineering for time extraction
+- JSON response processing
+
+### PHASE 4: Advanced Features (Days 11-14)
+
+#### 4.1 Interactive Timeline
+- Playback controls
+- Visual start/end markers
+- Drag to adjust times
+- Temporal zoom
+
+#### 4.2 Export System
+- Individual export
+- Batch export
+- Destination folder selector
+- Original quality preservation
+
+#### 4.3 State Management
+- Automatic project saving
+- Session recovery
+- Undo/Redo for edits
+
+### PHASE 5: Polish and Optimization (Days 15-16)
+
+#### 5.1 UX Enhancements
+- Smooth animations
+- Enhanced visual feedback
+- Keyboard shortcuts
+- Informative tooltips
+
+#### 5.2 Performance
+- Asynchronous loading
+- Thumbnail caching
+- Memory optimization
+
+## 📐 UI Improvement Proposals
+
+### Suggested Improvements:
+
+#### 1. Enhanced Phase 1:
+- Add loaded video preview
+- Show basic information (duration, resolution, format)
+- Replace video option
+
+#### 2. Enhanced Phase 2:
+- Tabs for different input methods
+- Preview of loaded file content
+- Real-time visual validation for manual input
+
+#### 3. Enhanced Phase 3:
+- Miniplayer with basic controls
+- List vs grid view for cuts
+- Editable properties panel
+- Tags/categories system
+
+#### 4. Additional Features:
+- Predefined cut templates
+- Export with different qualities
+- Automatic scene analysis
+- Cloud storage integration
+
+## 🎨 Design Specifications
+
+### Color Palette
+```python
+COLORS = {
+    "primary": "#1a1a1a",      # Main background
+    "secondary": "#2d2d2d",    # Panels
+    "accent": "#007acc",       # Main buttons
+    "success": "#4caf50",      # Success states
+    "warning": "#ff9800",      # Warnings
+    "error": "#f44336",        # Errors
+    "text": "#ffffff",         # Main text
+    "text_secondary": "#b0b0b0" # Secondary text
+}
+```
+
+### Typography
+- **Main**: Segoe UI, sans-serif
+- **Monospace**: Consolas, Monaco, monospace
+- **Sizes**: 
+  - Headers: 18-24px
+  - Body: 14-16px
+  - Small: 12px
+
+### Spacing
+- **Base padding**: 16px
+- **Base margin**: 8px
+- **Border radius**: 8px
+- **Shadows**: 0 2px 8px rgba(0,0,0,0.3)
+
+## 🚀 Data Formats
+
+### Manual Input/File
+```
+hh:mm:ss - hh:mm:ss - title - description
+00:00:30 - 00:02:15 - Introduction - Welcome to the video
+00:02:15 - 00:05:30 - Main Topic - Main content development
+```
+
+### Processed JSON Format
+```json
+{
+  "cuts": [
+    {
+      "id": 1,
+      "start": "00:00:30",
+      "end": "00:02:15",
+      "title": "Introduction",
+      "description": "Welcome to the video",
+      "duration": "00:01:45"
+    }
+  ],
+  "video_info": {
+    "filename": "video.mp4",
+    "duration": "01:30:00",
+    "resolution": "1920x1080",
+    "fps": 30
+  }
+}
+```
+
+## 📋 Implementation Checklist
+
+### Phase 1 ✅
+- [ ] Virtual environment setup
+- [ ] Dependencies installation
+- [ ] Folder structure
+- [ ] Base theme configuration
+
+### Phase 2 ✅
+- [ ] Video loading component
+- [ ] Time loading interface
+- [ ] Simple manual time input (placeholder only)
+- [ ] Main editor layout
+- [ ] Progress window
+
+### Phase 2.5 (Must-Have Enhancements) 🔄
+- [ ] Syntax highlighting for manual input
+- [ ] Real-time validation
+- [ ] Valid lines counter
+- [ ] Auto-completion suggestions
+- [ ] Line numbers display
+
+### Phase 3 ✅
+- [ ] FFmpeg integration
+- [ ] Time parser
+- [ ] LLM connection
+- [ ] Validations
+
+### Phase 4 ✅
+- [ ] Interactive timeline
+- [ ] Export system
+- [ ] State management
+- [ ] Video preview
+
+### Phase 5 ✅
+- [ ] Animations
+- [ ] Optimizations
+- [ ] Testing
+- [ ] Documentation
+
+## 🔧 Technical Decisions & Library Usage
+
+### **FFmpeg-python vs Direct FFmpeg Console**
+
+#### **Why ffmpeg-python?**
+
+1. **Type Safety and Validation**:
+   - Parameter validation at development time
+   - IDE autocomplete support
+   - Fewer syntax errors
+
+2. **Robust Error Handling**:
+   ```python
+   # With ffmpeg-python
+   try:
+       ffmpeg.input('video.mp4').output('cut.mp4', ss=30, t=60).run()
+   except ffmpeg.Error as e:
+       print(f"Error: {e.stderr}")
+   
+   # vs direct call (more error-prone)
+   os.system('ffmpeg -i video.mp4 -ss 30 -t 60 cut.mp4')
+   ```
+
+3. **Dynamic Command Construction**:
+   ```python
+   # Easy programmatic construction
+   stream = ffmpeg.input(video_path)
+   if add_filters:
+       stream = stream.filter('scale', 1920, 1080)
+   stream.output(output_path).run()
+   ```
+
+4. **Python Integration**:
+   - Better path and encoding handling
+   - Natural integration with Python variables
+   - Automatic special character escaping
+
+#### **When to use direct FFmpeg:**
+- For very complex commands that ffmpeg-python doesn't support well
+- For maximum performance in specific cases
+
+### **OpenCV-python Usage**
+
+1. **Thumbnail/Frame Extraction**:
+   ```python
+   import cv2
+   
+   # Extract specific frame for preview
+   cap = cv2.VideoCapture('video.mp4')
+   cap.set(cv2.CAP_PROP_POS_MSEC, timestamp_ms)
+   ret, frame = cap.read()
+   ```
+
+2. **Video Information**:
+   ```python
+   # Get video metadata
+   cap = cv2.VideoCapture('video.mp4')
+   fps = cap.get(cv2.CAP_PROP_FPS)
+   width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+   height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+   total_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+   ```
+
+3. **Interactive Timeline**:
+   - Show specific frames on timeline
+   - Real-time preview while user drags markers
+   - Generate thumbnails for timeline
+
+4. **Automatic Scene Analysis** (optional):
+   ```python
+   # Automatically detect scene changes
+   def detect_scene_changes(video_path):
+       cap = cv2.VideoCapture(video_path)
+       # Scene change detection algorithm
+   ```
+
+### **Pillow (PIL) Usage**
+
+1. **Thumbnail Processing**:
+   ```python
+   from PIL import Image
+   
+   # Resize thumbnails for UI
+   img = Image.open('thumbnail.jpg')
+   img.thumbnail((200, 150))  # For cuts list
+   ```
+
+2. **Format Conversion**:
+   ```python
+   # Convert OpenCV frames to Tkinter-compatible format
+   cv_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+   pil_image = Image.fromarray(cv_image)
+   tk_image = ImageTk.PhotoImage(pil_image)
+   ```
+
+3. **Image Optimization**:
+   ```python
+   # Compress thumbnails for better performance
+   img.save('thumbnail.jpg', 'JPEG', quality=85, optimize=True)
+   ```
+
+4. **UI Visual Effects**:
+   ```python
+   # Add borders, shadows to thumbnails
+   from PIL import ImageFilter
+   img_with_shadow = img.filter(ImageFilter.GaussianBlur(2))
+   ```
+
+### **Complete Workflow Pipeline**
+
+```python
+# 1. OpenCV extracts frame
+cap = cv2.VideoCapture('video.mp4')
+cap.set(cv2.CAP_PROP_POS_MSEC, cut_start_ms)
+ret, frame = cap.read()
+
+# 2. Pillow processes the image
+cv_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+pil_img = Image.fromarray(cv_rgb)
+pil_img.thumbnail((300, 200))
+
+# 3. Display in CustomTkinter
+tk_image = ImageTk.PhotoImage(pil_img)
+preview_label.configure(image=tk_image)
+
+# 4. FFmpeg-python performs actual cut
+ffmpeg.input('video.mp4').output(
+    'cut.mp4', 
+    ss=start_time, 
+    t=duration
+).run()
+```
+
+### **Library Responsibilities Summary**
+
+| Library | Responsibility | Use Case |
+|---------|----------------|----------|
+| **CustomTkinter** | Modern UI framework | All interface components |
+| **FFmpeg-python** | Video cutting/processing | Export final cuts |
+| **OpenCV** | Frame extraction & analysis | Timeline previews, metadata |
+| **Pillow** | Image processing | Thumbnail generation, UI images |
+| **OpenAI/Anthropic** | AI processing | Automatic timestamp extraction |
+
+## 🎯 Must-Have Features (Future Enhancements)
+
+### **Enhanced Manual Input System**
+- **Syntax Highlighting**: Color-coded format validation
+  ```python
+  # Green: Valid timestamp format
+  # Red: Invalid format
+  # Blue: Title and description sections
+  ```
+- **Real-time Validation**: Live feedback as user types
+- **Valid Lines Counter**: Shows "X of Y lines valid"
+- **Auto-completion**: Suggest common timestamp patterns
+- **Line Numbers**: For easy error identification
+
+### **Advanced Timeline Features**
+- **Waveform Visualization**: Audio waveform overlay on timeline
+- **Keyboard Shortcuts**: 
+  - Space: Play/Pause
+  - Left/Right arrows: Frame by frame
+  - Shift + Left/Right: 10 second jumps
+- **Snap to Beat**: Automatic alignment to audio beats
+- **Multiple Selection**: Select and edit multiple cuts at once
+
+### **Export Enhancements**
+- **Quality Presets**: 4K, 1080p, 720p, 480p options
+- **Format Selection**: MP4, AVI, MOV, WebM export options
+- **Compression Settings**: Customizable bitrate and quality
+- **Batch Processing**: Queue multiple export jobs
+- **Progress Notifications**: System notifications when exports complete
+
+### **LLM Integration Improvements**
+- **Multiple LLM Providers**: OpenAI, Anthropic, Local models
+- **Custom Prompts**: User-defined extraction prompts
+- **Confidence Scoring**: Show AI confidence for each detected segment
+- **Manual Review**: Review and edit AI-generated timestamps before processing
