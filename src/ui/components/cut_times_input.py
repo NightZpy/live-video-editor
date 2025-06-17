@@ -1,9 +1,17 @@
 """
 Cut Times Input Component
-Phase 2.2 - Time Loading Interface UI
+Phase 2.2 - Time Loading Interface with real functionality
 """
 
 import customtkinter as ctk
+import os
+import sys
+from tkinter import filedialog, messagebox
+
+# Add src to path for imports
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+
+from src.utils.text_utils import validate_and_parse_cuts_file, format_cuts_preview
 from ..styles.theme import get_frame_style, get_text_style, get_button_style, COLORS, SPACING
 
 class CutTimesInputComponent(ctk.CTkFrame):
@@ -12,6 +20,10 @@ class CutTimesInputComponent(ctk.CTkFrame):
         
         # Callback for when an option is selected
         self.on_option_selected = on_option_selected
+        
+        # State
+        self.is_processing = False
+        self.loaded_cuts_data = None
         
         # Configure grid
         self.grid_columnconfigure(0, weight=1)
@@ -288,16 +300,84 @@ class CutTimesInputComponent(ctk.CTkFrame):
         )
         info_label.grid(row=3, column=0, pady=(0, SPACING["md"]))
     
-    # Event handlers (UI only for now)
+    # Event handlers with real functionality
     def on_browse_file(self):
-        """Handle browse file button click"""
-        print("Browse file clicked - UI only")
-        if self.on_option_selected:
-            self.on_option_selected("file_upload")
+        """Handle browse file button click with real file dialog"""
+        if self.is_processing:
+            return
+            
+        file_path = filedialog.askopenfilename(
+            title="Select Cut Times File",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+            initialdir=os.path.expanduser("~")
+        )
+        
+        if file_path:
+            self.process_cuts_file(file_path)
     
+    def process_cuts_file(self, file_path):
+        """Process the selected cuts file"""
+        if self.is_processing:
+            return
+            
+        self.is_processing = True
+        
+        # Update UI to show processing state
+        self.update_file_upload_ui("processing")
+        
+        # Validate and parse file
+        is_valid, error_message, cuts_data = validate_and_parse_cuts_file(file_path)
+        
+        if not is_valid:
+            self.is_processing = False
+            self.update_file_upload_ui("error", error_message)
+            messagebox.showerror("Invalid File", error_message)
+            self.reset_file_upload_ui()
+            return
+        
+        if not cuts_data:
+            self.is_processing = False
+            self.update_file_upload_ui("error", "Could not parse file content")
+            messagebox.showerror("Error", "Could not parse file content")
+            self.reset_file_upload_ui()
+            return
+        
+        # Success!
+        self.loaded_cuts_data = cuts_data
+        self.update_file_upload_ui("success")
+        
+        # Show preview and proceed after delay
+        self.after(2000, self.proceed_with_file_data)
+    
+    def update_file_upload_ui(self, state, message=""):
+        """Update file upload UI based on current state"""
+        # Find the drop text label (we'll need to store reference to it)
+        # For now, we'll just show a message box or update via callback
+        if state == "processing":
+            print("📂 Processing cut times file...")
+        elif state == "success" and self.loaded_cuts_data:
+            preview = format_cuts_preview(self.loaded_cuts_data)
+            print(f"✅ Cut times loaded successfully!\n{preview}")
+        elif state == "error":
+            print(f"❌ Error: {message}")
+    
+    def reset_file_upload_ui(self):
+        """Reset file upload UI to initial state"""
+        self.after(3000, self._reset_file_upload_elements)
+    
+    def _reset_file_upload_elements(self):
+        """Reset file upload elements to initial state"""
+        print("🔄 Resetting file upload UI")
+        self.is_processing = False
+    
+    def proceed_with_file_data(self):
+        """Proceed to next phase with loaded file data"""
+        if self.on_option_selected and self.loaded_cuts_data:
+            self.on_option_selected("file_upload", self.loaded_cuts_data)
+
     def on_manual_entry(self):
         """Handle manual entry button click"""
-        print("Manual entry clicked - UI only")
+        print("✍️ Manual entry selected")
         if self.on_option_selected:
             self.on_option_selected("manual_entry")
     
@@ -305,7 +385,7 @@ class CutTimesInputComponent(ctk.CTkFrame):
         """Handle automatic analysis button click"""
         api_key = self.api_key_entry.get().strip()
         if api_key:
-            print(f"Automatic analysis clicked with API key - UI only")
+            print(f"🤖 Automatic analysis selected with API key")
             if self.on_option_selected:
                 self.on_option_selected("automatic_analysis", {"api_key": api_key})
     
