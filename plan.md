@@ -295,7 +295,7 @@ hh:mm:ss - hh:mm:ss - title - description
 - [DONE] Progress window (UI)
 
 ### Phase 3 (Basic Core Functionality) 🔄
-- [ ] Real video loading (.mp4 files)
+- [DONE] Real video loading (.mp4 files)
 - [ ] Real time file loading and parsing
 - [ ] Time processing and JSON conversion
 - [ ] Basic cuts list display
