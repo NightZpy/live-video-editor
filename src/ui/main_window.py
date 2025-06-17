@@ -5,6 +5,7 @@ Live Video Editor - Main Application Window
 
 import customtkinter as ctk
 from .styles.theme import apply_theme, COLORS, FONTS, SPACING, get_frame_style, get_text_style
+from .components.video_loader import VideoLoaderComponent
 
 class MainWindow(ctk.CTk):
     def __init__(self):
@@ -78,14 +79,9 @@ class MainWindow(ctk.CTk):
         self.content_frame.grid_columnconfigure(0, weight=1)
         self.content_frame.grid_rowconfigure(0, weight=1)
         
-        # Placeholder content
-        placeholder_style = get_text_style("secondary")
-        placeholder_label = ctk.CTkLabel(
-            self.content_frame,
-            text="UI Base Structure Ready\nPhase 1.2 Complete ✓",
-            **placeholder_style
-        )
-        placeholder_label.grid(row=0, column=0, pady=SPACING["xl"])
+        # Show video loader component (Phase 2.1)
+        self.video_loader = VideoLoaderComponent(self.content_frame)
+        self.video_loader.grid(row=0, column=0, sticky="nsew")
 
 if __name__ == "__main__":
     app = MainWindow()
