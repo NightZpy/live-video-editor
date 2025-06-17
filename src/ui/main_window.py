@@ -5,7 +5,7 @@ Live Video Editor - Main Application Window
 
 import customtkinter as ctk
 from .styles.theme import apply_theme, COLORS, FONTS, SPACING, get_frame_style, get_text_style
-from .components import VideoLoaderComponent, CutTimesInputComponent
+from .components import VideoLoaderComponent, CutTimesInputComponent, ManualInputComponent
 from .components.video_loader import VideoLoaderComponent
 
 class MainWindow(ctk.CTk):
@@ -97,6 +97,8 @@ class MainWindow(ctk.CTk):
             self.show_video_loading_phase()
         elif self.current_phase == "cut_times_input":
             self.show_cut_times_input_phase()
+        elif self.current_phase == "manual_input":
+            self.show_manual_input_phase()
     
     def show_video_loading_phase(self):
         """Show video loading phase"""
@@ -108,8 +110,19 @@ class MainWindow(ctk.CTk):
     
     def show_cut_times_input_phase(self):
         """Show cut times input phase"""
-        cut_times_input = CutTimesInputComponent(self.content_frame)
+        cut_times_input = CutTimesInputComponent(
+            self.content_frame,
+            on_option_selected=self.on_cut_times_option_selected
+        )
         cut_times_input.grid(row=0, column=0, sticky="nsew", padx=SPACING["lg"], pady=SPACING["lg"])
+    
+    def show_manual_input_phase(self):
+        """Show manual input phase"""
+        manual_input = ManualInputComponent(
+            self.content_frame,
+            on_process_complete=self.on_manual_input_complete
+        )
+        manual_input.grid(row=0, column=0, sticky="nsew", padx=SPACING["lg"], pady=SPACING["lg"])
     
     def on_video_loaded(self, video_path):
         """Handle video loaded event"""
@@ -117,6 +130,28 @@ class MainWindow(ctk.CTk):
         self.current_phase = "cut_times_input"
         self.show_current_phase()
         print(f"📹 Video loaded: {video_path} - Moving to cut times input phase")
+    
+    def on_cut_times_option_selected(self, option, data=None):
+        """Handle cut times option selection"""
+        print(f"🎯 Cut times option selected: {option}")
+        
+        if option == "manual_entry":
+            self.current_phase = "manual_input"
+            self.show_current_phase()
+        elif option == "file_upload":
+            print("📄 File upload selected - will implement in Phase 3")
+        elif option == "automatic_analysis":
+            api_key = data.get('api_key', 'N/A') if data else 'N/A'
+            print(f"🤖 AI analysis selected with API key: {api_key}")
+    
+    def on_manual_input_complete(self, action, data=None):
+        """Handle manual input completion"""
+        if action == "back":
+            self.current_phase = "cut_times_input"
+            self.show_current_phase()
+        elif action == "complete":
+            print(f"✅ Manual input complete: {data}")
+            # Will navigate to editor phase in future
 
 if __name__ == "__main__":
     app = MainWindow()

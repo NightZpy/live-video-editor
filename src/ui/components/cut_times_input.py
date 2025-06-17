@@ -7,8 +7,11 @@ import customtkinter as ctk
 from ..styles.theme import get_frame_style, get_text_style, get_button_style, COLORS, SPACING
 
 class CutTimesInputComponent(ctk.CTkFrame):
-    def __init__(self, parent, **kwargs):
+    def __init__(self, parent, on_option_selected=None, **kwargs):
         super().__init__(parent, **kwargs)
+        
+        # Callback for when an option is selected
+        self.on_option_selected = on_option_selected
         
         # Configure grid
         self.grid_columnconfigure(0, weight=1)
@@ -222,37 +225,65 @@ class CutTimesInputComponent(ctk.CTkFrame):
         )
         title_label.grid(row=1, column=0, pady=SPACING["xs"])
         
-        # Description area
-        desc_frame = ctk.CTkFrame(option_frame, fg_color="transparent")
-        desc_frame.grid(row=2, column=0, sticky="nsew", padx=SPACING["md"], pady=SPACING["md"])
-        desc_frame.grid_columnconfigure(0, weight=1)
-        desc_frame.grid_rowconfigure(0, weight=1)
+        # Content area
+        content_frame = ctk.CTkFrame(option_frame, fg_color="transparent")
+        content_frame.grid(row=2, column=0, sticky="nsew", padx=SPACING["md"], pady=SPACING["md"])
+        content_frame.grid_columnconfigure(0, weight=1)
+        content_frame.grid_rowconfigure(1, weight=1)
         
         # Description text
         desc_text_style = get_text_style("secondary")
         desc_text = ctk.CTkLabel(
-            desc_frame,
-            text="Let AI analyze your video\nand suggest optimal\ncut points automatically\n\nPowered by LLM",
+            content_frame,
+            text="Let AI analyze your video\nand suggest optimal cut points",
             **desc_text_style
         )
-        desc_text.grid(row=0, column=0, pady=SPACING["md"])
+        desc_text.grid(row=0, column=0, pady=(SPACING["md"], SPACING["sm"]))
+        
+        # API Key input section
+        api_frame = ctk.CTkFrame(content_frame, fg_color=COLORS["input_bg"], corner_radius=6)
+        api_frame.grid(row=1, column=0, sticky="ew", pady=SPACING["sm"])
+        api_frame.grid_columnconfigure(0, weight=1)
+        
+        # API Key label
+        api_label_style = get_text_style("small")
+        api_label = ctk.CTkLabel(
+            api_frame,
+            text="OpenAI API Key:",
+            **api_label_style
+        )
+        api_label.grid(row=0, column=0, sticky="w", padx=SPACING["sm"], pady=(SPACING["sm"], SPACING["xs"]))
+        
+        # API Key entry
+        self.api_key_entry = ctk.CTkEntry(
+            api_frame,
+            placeholder_text="sk-...",
+            show="*",
+            font=("Consolas", 12),
+            fg_color=COLORS["secondary"],
+            border_color=COLORS["border"],
+            border_width=1
+        )
+        self.api_key_entry.grid(row=1, column=0, sticky="ew", padx=SPACING["sm"], pady=(0, SPACING["sm"]))
+        self.api_key_entry.bind("<KeyRelease>", self.on_api_key_change)
         
         # Auto button
         auto_btn_style = get_button_style("success")
-        auto_btn = ctk.CTkButton(
-            desc_frame,
+        self.auto_btn = ctk.CTkButton(
+            content_frame,
             text="Analyze with AI",
             width=140,
+            state="disabled",  # Initially disabled
             command=self.on_automatic_analysis,
             **auto_btn_style
         )
-        auto_btn.grid(row=1, column=0, pady=SPACING["sm"])
+        self.auto_btn.grid(row=2, column=0, pady=SPACING["sm"])
         
         # Info
         info_style = get_text_style("small")
         info_label = ctk.CTkLabel(
             option_frame,
-            text="Requires API key configuration",
+            text="Requires valid OpenAI API key",
             **info_style
         )
         info_label.grid(row=3, column=0, pady=(0, SPACING["md"]))
@@ -261,11 +292,29 @@ class CutTimesInputComponent(ctk.CTkFrame):
     def on_browse_file(self):
         """Handle browse file button click"""
         print("Browse file clicked - UI only")
+        if self.on_option_selected:
+            self.on_option_selected("file_upload")
     
     def on_manual_entry(self):
         """Handle manual entry button click"""
         print("Manual entry clicked - UI only")
+        if self.on_option_selected:
+            self.on_option_selected("manual_entry")
     
     def on_automatic_analysis(self):
         """Handle automatic analysis button click"""
-        print("Automatic analysis clicked - UI only")
+        api_key = self.api_key_entry.get().strip()
+        if api_key:
+            print(f"Automatic analysis clicked with API key - UI only")
+            if self.on_option_selected:
+                self.on_option_selected("automatic_analysis", {"api_key": api_key})
+    
+    def on_api_key_change(self, event):
+        """Handle API key input change"""
+        api_key = self.api_key_entry.get().strip()
+        if len(api_key) >= 10:  # Basic validation
+            self.auto_btn.configure(state="normal")
+            self.api_key_entry.configure(border_color=COLORS["success"])
+        else:
+            self.auto_btn.configure(state="disabled")
+            self.api_key_entry.configure(border_color=COLORS["border"])
