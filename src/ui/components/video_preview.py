@@ -266,7 +266,17 @@ class VideoPreviewComponent(ctk.CTkFrame):
         """Create export controls"""
         export_frame = ctk.CTkFrame(self, fg_color="transparent")
         export_frame.grid(row=0, column=0, sticky="ew", padx=SPACING["md"], pady=SPACING["md"])
-        export_frame.grid_columnconfigure((0, 1, 2), weight=1)
+        export_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        
+        # New Video button (first)
+        new_video_btn_style = get_button_style("warning")
+        new_video_btn = ctk.CTkButton(
+            export_frame,
+            text="← New Video",
+            command=self.on_new_video,
+            **new_video_btn_style
+        )
+        new_video_btn.grid(row=0, column=0, padx=SPACING["sm"], pady=SPACING["sm"])
         
         # Export single button
         export_single_style = get_button_style("primary")
@@ -276,7 +286,7 @@ class VideoPreviewComponent(ctk.CTkFrame):
             command=self.on_export_single,
             **export_single_style
         )
-        export_single_btn.grid(row=0, column=0, padx=SPACING["sm"], pady=SPACING["sm"])
+        export_single_btn.grid(row=0, column=1, padx=SPACING["sm"], pady=SPACING["sm"])
         
         # Export all button
         export_all_style = get_button_style("success")
@@ -286,7 +296,7 @@ class VideoPreviewComponent(ctk.CTkFrame):
             command=self.on_export_all,
             **export_all_style
         )
-        export_all_btn.grid(row=0, column=1, padx=SPACING["sm"], pady=SPACING["sm"])
+        export_all_btn.grid(row=0, column=2, padx=SPACING["sm"], pady=SPACING["sm"])
         
         # Quality selector placeholder
         quality_btn_style = get_button_style("secondary")
@@ -296,7 +306,7 @@ class VideoPreviewComponent(ctk.CTkFrame):
             command=self.on_quality_settings,
             **quality_btn_style
         )
-        quality_btn.grid(row=0, column=2, padx=SPACING["sm"], pady=SPACING["sm"])
+        quality_btn.grid(row=0, column=3, padx=SPACING["sm"], pady=SPACING["sm"])
     
     def update_cut_info(self, cut_data):
         """Update the display with selected cut information"""
@@ -338,3 +348,17 @@ class VideoPreviewComponent(ctk.CTkFrame):
     def on_quality_settings(self):
         """Handle quality settings"""
         print("⚙️ Quality settings")
+    
+    def on_new_video(self):
+        """Handle new video button - go back to video loading"""
+        print("🔄 New video requested")
+        
+        # We need to communicate this to the main window
+        # For now, we'll use a simple approach - find the main window and reset
+        main_window = self.winfo_toplevel()
+        
+        # Check if main_window has the method to reset to video loading
+        if hasattr(main_window, 'reset_to_video_loading'):
+            main_window.reset_to_video_loading()
+        else:
+            print("⚠️ Main window doesn't have reset_to_video_loading method")

@@ -163,6 +163,17 @@ class MainWindow(ctk.CTk):
             # Navigate to main editor
             self.current_phase = "main_editor"
             self.show_current_phase()
+    
+    def reset_to_video_loading(self):
+        """Reset the application to video loading phase"""
+        print("🔄 Resetting to video loading phase")
+        
+        # Reset state
+        self.current_phase = "video_loading"
+        self.loaded_video = None
+        
+        # Show video loading phase
+        self.show_current_phase()
 
 if __name__ == "__main__":
     app = MainWindow()

@@ -153,14 +153,14 @@ class ProgressDialog(ctk.CTkToplevel):
         self.progress_bar.grid(row=1, column=0, pady=SPACING["md"])
         self.progress_bar.set(0)
         
-        # Percentage label
+        # Percentage label - more visible
         self.percentage_label = ctk.CTkLabel(
             progress_frame,
             text="0%",
-            font=("Segoe UI", 16, "bold"),
-            text_color=COLORS["accent"]
+            font=("Segoe UI", 24, "bold"),
+            text_color=COLORS["accent"]  # Use accent color to stand out
         )
-        self.percentage_label.grid(row=2, column=0, pady=(SPACING["sm"], SPACING["md"]))
+        self.percentage_label.grid(row=2, column=0, pady=(SPACING["md"], SPACING["md"]))
         
         # File counter
         self.file_counter_label = ctk.CTkLabel(
@@ -208,7 +208,9 @@ class ProgressDialog(ctk.CTkToplevel):
     
     def start_progress_simulation(self):
         """Start the progress simulation"""
-        self.simulate_progress()
+        print("🚀 Starting progress simulation")
+        # Small delay to ensure UI is ready
+        self.after(200, self.simulate_progress)
     
     def simulate_progress(self):
         """Simulate export progress"""
@@ -226,6 +228,7 @@ class ProgressDialog(ctk.CTkToplevel):
         # Update percentage
         percentage = int(self.progress_value * 100)
         self.percentage_label.configure(text=f"{percentage}%")
+        print(f"📊 Progress: {percentage}%")  # Debug
         
         # Update current file based on progress
         files_completed = int(self.progress_value * self.total_files)
