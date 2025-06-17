@@ -5,7 +5,7 @@ Live Video Editor - Main Application Window
 
 import customtkinter as ctk
 from .styles.theme import apply_theme, COLORS, FONTS, SPACING, get_frame_style, get_text_style
-from .components import VideoLoaderComponent, CutTimesInputComponent, ManualInputComponent
+from .components import VideoLoaderComponent, CutTimesInputComponent, ManualInputComponent, MainEditorComponent
 from .components.video_loader import VideoLoaderComponent
 
 class MainWindow(ctk.CTk):
@@ -99,6 +99,8 @@ class MainWindow(ctk.CTk):
             self.show_cut_times_input_phase()
         elif self.current_phase == "manual_input":
             self.show_manual_input_phase()
+        elif self.current_phase == "main_editor":
+            self.show_main_editor_phase()
     
     def show_video_loading_phase(self):
         """Show video loading phase"""
@@ -123,6 +125,13 @@ class MainWindow(ctk.CTk):
             on_process_complete=self.on_manual_input_complete
         )
         manual_input.grid(row=0, column=0, sticky="nsew", padx=SPACING["lg"], pady=SPACING["lg"])
+    
+    def show_main_editor_phase(self):
+        """Show main editor phase"""
+        main_editor = MainEditorComponent(self.content_frame)
+        main_editor.grid(row=0, column=0, sticky="nsew")
+        # Load mock data for testing
+        main_editor.set_mock_data()
     
     def on_video_loaded(self, video_path):
         """Handle video loaded event"""
@@ -151,7 +160,9 @@ class MainWindow(ctk.CTk):
             self.show_current_phase()
         elif action == "complete":
             print(f"✅ Manual input complete: {data}")
-            # Will navigate to editor phase in future
+            # Navigate to main editor
+            self.current_phase = "main_editor"
+            self.show_current_phase()
 
 if __name__ == "__main__":
     app = MainWindow()

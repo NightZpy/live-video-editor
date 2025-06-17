@@ -4,3 +4,6 @@
 from .video_loader import VideoLoaderComponent
 from .cut_times_input import CutTimesInputComponent
 from .manual_input import ManualInputComponent
+from .cuts_list import CutsListComponent
+from .video_preview import VideoPreviewComponent
+from .main_editor import MainEditorComponent
