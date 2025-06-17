@@ -60,7 +60,7 @@ python-dotenv==1.0.0
 
 #### 1.2 Base Structure and Theme
 - Create modern dark theme system
-- Configure responsive main window
+- Configure main window with fixed size
 - Implement navigation between phases
 
 ### PHASE 2: UI Without Functionality (Days 3-5)
@@ -71,7 +71,7 @@ python-dotenv==1.0.0
 # - Elegant drag & drop area
 # - Large video icon
 # - Text "Drag your video here or click to select"
-# - Supported formats: MP4, AVI, MOV, MKV
+# - Supported format: MP4 only
 # - Hover animations
 ```
 
@@ -248,17 +248,17 @@ hh:mm:ss - hh:mm:ss - title - description
 ## 📋 Implementation Checklist
 
 ### Phase 1 ✅
-- [ ] Virtual environment setup
-- [ ] Dependencies installation
-- [ ] Folder structure
-- [ ] Base theme configuration
+- [DONE] Virtual environment setup
+- [DONE] Dependencies installation
+- [DONE] Folder structure
+- [DONE] Base theme configuration
 
 ### Phase 2 ✅
-- [ ] Video loading component
-- [ ] Time loading interface
-- [ ] Simple manual time input (placeholder only)
-- [ ] Main editor layout
-- [ ] Progress window
+- [DONE] Video loading component (UI)
+- [DONE] Time loading interface (UI)
+- [DONE] Simple manual time input (placeholder only)
+- [DONE] Main editor layout (UI)
+- [DONE] Progress window (UI)
 
 ### Phase 2.5 (Must-Have Enhancements) 🔄
 - [ ] Syntax highlighting for manual input
@@ -463,3 +463,25 @@ ffmpeg.input('video.mp4').output(
 - **Custom Prompts**: User-defined extraction prompts
 - **Confidence Scoring**: Show AI confidence for each detected segment
 - **Manual Review**: Review and edit AI-generated timestamps before processing
+
+### **Video Format Support**
+- **Multiple Format Support**: AVI, MOV, MKV, WebM, FLV
+  ```python
+  # Extended format validation
+  # Format-specific metadata extraction
+  # Automatic format detection
+  ```
+- **Format Conversion**: Convert between formats during export
+- **Codec Support**: Different video/audio codec handling
+- **Quality Profiles**: Different compression settings per format
+
+### **Enhanced UI System**
+- **Responsive Layout**: Auto-resize based on screen size and content
+  ```python
+  # Dynamic window sizing
+  # Grid weight management for different screen sizes
+  # Adaptive component scaling
+  ```
+- **Multi-monitor Support**: Proper handling of different screen resolutions
+- **Zoom Controls**: UI scaling for accessibility
+- **Window State Management**: Remember size and position between sessions
