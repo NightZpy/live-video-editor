@@ -17,11 +17,17 @@ class VideoPreviewComponent(ctk.CTkFrame):
         # Current selected cut data
         self.selected_cut = None
         
+        # UI state
+        self.info_panel_expanded = False  # Default closed
+        
         # Setup UI
         self.setup_ui()
     
     def setup_ui(self):
         """Setup the video preview interface"""
+        # Export controls (moved to top for visibility)
+        self.create_export_controls()
+        
         # Video preview area
         self.create_video_preview()
         
@@ -30,15 +36,12 @@ class VideoPreviewComponent(ctk.CTkFrame):
         
         # Cut information
         self.create_cut_info()
-        
-        # Export controls
-        self.create_export_controls()
     
     def create_video_preview(self):
         """Create video preview area"""
         preview_frame_style = get_frame_style("card")
         preview_frame = ctk.CTkFrame(self, height=300, **preview_frame_style)
-        preview_frame.grid(row=0, column=0, sticky="ew", padx=SPACING["md"], pady=SPACING["md"])
+        preview_frame.grid(row=1, column=0, sticky="ew", padx=SPACING["md"], pady=SPACING["md"])
         preview_frame.grid_columnconfigure(0, weight=1)
         preview_frame.grid_rowconfigure(0, weight=1)
         preview_frame.grid_propagate(False)
@@ -73,7 +76,7 @@ class VideoPreviewComponent(ctk.CTkFrame):
         """Create timeline area"""
         timeline_frame_style = get_frame_style("default")
         timeline_frame = ctk.CTkFrame(self, height=80, **timeline_frame_style)
-        timeline_frame.grid(row=1, column=0, sticky="ew", padx=SPACING["md"], pady=(0, SPACING["md"]))
+        timeline_frame.grid(row=2, column=0, sticky="ew", padx=SPACING["md"], pady=(0, SPACING["md"]))
         timeline_frame.grid_columnconfigure(1, weight=1)
         timeline_frame.grid_propagate(False)
         
@@ -128,26 +131,68 @@ class VideoPreviewComponent(ctk.CTkFrame):
         end_marker.grid(row=0, column=2, sticky="e")
     
     def create_cut_info(self):
-        """Create cut information panel"""
+        """Create cut information panel with toggle"""
+        # Main info frame
         info_frame_style = get_frame_style("card")
-        info_frame = ctk.CTkFrame(self, **info_frame_style)
-        info_frame.grid(row=2, column=0, sticky="ew", padx=SPACING["md"], pady=(0, SPACING["md"]))
-        info_frame.grid_columnconfigure((0, 1, 2), weight=1)
+        self.info_frame = ctk.CTkFrame(self, **info_frame_style)
+        self.info_frame.grid(row=3, column=0, sticky="ew", padx=SPACING["md"], pady=(0, SPACING["md"]))
+        self.info_frame.grid_columnconfigure(0, weight=1)
         
-        # Title
-        info_title_style = get_text_style("default")
-        info_title = ctk.CTkLabel(
-            info_frame,
-            text="Cut Information",
-            **info_title_style
+        # Toggle header
+        self.create_info_toggle_header()
+        
+        # Content frame (initially hidden)
+        self.create_info_content()
+        
+        # Initially hide content
+        self.toggle_info_panel(show=False)
+    
+    def create_info_toggle_header(self):
+        """Create the toggle header for cut info"""
+        header_frame = ctk.CTkFrame(self.info_frame, fg_color="transparent")
+        header_frame.grid(row=0, column=0, sticky="ew", padx=SPACING["md"], pady=SPACING["md"])
+        header_frame.grid_columnconfigure(0, weight=1)
+        
+        # Toggle button with arrow and title
+        self.info_toggle_btn = ctk.CTkButton(
+            header_frame,
+            text="▶ Cut Information",
+            command=self.on_toggle_info,
+            fg_color="transparent",
+            text_color=COLORS["text"],
+            hover_color=COLORS["hover"],
+            font=get_text_style("default")["font"],
+            anchor="w"
         )
-        info_title.grid(row=0, column=0, columnspan=3, pady=(SPACING["md"], SPACING["sm"]))
+        self.info_toggle_btn.grid(row=0, column=0, sticky="ew")
+    
+    def create_info_content(self):
+        """Create the content area for cut information"""
+        self.info_content_frame = ctk.CTkFrame(self.info_frame, fg_color="transparent")
+        self.info_content_frame.grid(row=1, column=0, sticky="ew", padx=SPACING["md"], pady=(0, SPACING["md"]))
+        self.info_content_frame.grid_columnconfigure((0, 1, 2), weight=1)
         
-        # Time information
-        self.create_time_info(info_frame)
-        
-        # Title and description
-        self.create_cut_details(info_frame)
+        # Time information and cut details
+        self.create_time_info(self.info_content_frame)
+        self.create_cut_details(self.info_content_frame)
+    
+    def toggle_info_panel(self, show=None):
+        """Toggle the info panel visibility"""
+        if show is None:
+            self.info_panel_expanded = not self.info_panel_expanded
+        else:
+            self.info_panel_expanded = show
+            
+        if self.info_panel_expanded:
+            self.info_content_frame.grid()
+            self.info_toggle_btn.configure(text="▼ Cut Information")
+        else:
+            self.info_content_frame.grid_remove()
+            self.info_toggle_btn.configure(text="▶ Cut Information")
+    
+    def on_toggle_info(self):
+        """Handle info toggle button click"""
+        self.toggle_info_panel()
     
     def create_time_info(self, parent):
         """Create time information section"""
@@ -220,7 +265,7 @@ class VideoPreviewComponent(ctk.CTkFrame):
     def create_export_controls(self):
         """Create export controls"""
         export_frame = ctk.CTkFrame(self, fg_color="transparent")
-        export_frame.grid(row=3, column=0, sticky="ew", padx=SPACING["md"], pady=(0, SPACING["md"]))
+        export_frame.grid(row=0, column=0, sticky="ew", padx=SPACING["md"], pady=SPACING["md"])
         export_frame.grid_columnconfigure((0, 1, 2), weight=1)
         
         # Export single button
