@@ -29,7 +29,7 @@ class MainWindow(ctk.CTk):
         
         # Current phase tracking
         self.current_phase = "video_loading"
-        self.loaded_video = None
+        self.loaded_video_info = None
         
         # Initialize UI
         self.setup_ui()
@@ -133,12 +133,12 @@ class MainWindow(ctk.CTk):
         # Load mock data for testing
         main_editor.set_mock_data()
     
-    def on_video_loaded(self, video_path):
+    def on_video_loaded(self, video_info):
         """Handle video loaded event"""
-        self.loaded_video = video_path
+        self.loaded_video_info = video_info
         self.current_phase = "cut_times_input"
         self.show_current_phase()
-        print(f"📹 Video loaded: {video_path} - Moving to cut times input phase")
+        print(f"📹 Video loaded: {video_info['filename']} ({video_info['duration']}) - Moving to cut times input phase")
     
     def on_cut_times_option_selected(self, option, data=None):
         """Handle cut times option selection"""
@@ -170,7 +170,7 @@ class MainWindow(ctk.CTk):
         
         # Reset state
         self.current_phase = "video_loading"
-        self.loaded_video = None
+        self.loaded_video_info = None
         
         # Show video loading phase
         self.show_current_phase()

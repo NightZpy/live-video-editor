@@ -19,6 +19,8 @@ except ImportError:
 
 def main():
     """Main application entry point"""
+    # Create the main application window normally
+    # Drag and drop will be handled at component level
     app = MainWindow()
     app.mainloop()
 
