@@ -5,6 +5,7 @@ Live Video Editor - Main Application Window
 
 import customtkinter as ctk
 from .styles.theme import apply_theme, COLORS, FONTS, SPACING, get_frame_style, get_text_style
+from .components import VideoLoaderComponent, CutTimesInputComponent
 from .components.video_loader import VideoLoaderComponent
 
 class MainWindow(ctk.CTk):
@@ -25,6 +26,10 @@ class MainWindow(ctk.CTk):
         
         # Set window background
         self.configure(fg_color=COLORS["primary"])
+        
+        # Current phase tracking
+        self.current_phase = "video_loading"
+        self.loaded_video = None
         
         # Initialize UI
         self.setup_ui()
@@ -79,9 +84,39 @@ class MainWindow(ctk.CTk):
         self.content_frame.grid_columnconfigure(0, weight=1)
         self.content_frame.grid_rowconfigure(0, weight=1)
         
-        # Show video loader component (Phase 2.1)
-        self.video_loader = VideoLoaderComponent(self.content_frame)
-        self.video_loader.grid(row=0, column=0, sticky="nsew")
+        # Show appropriate phase
+        self.show_current_phase()
+    
+    def show_current_phase(self):
+        """Show the current phase UI"""
+        # Clear content frame
+        for widget in self.content_frame.winfo_children():
+            widget.destroy()
+        
+        if self.current_phase == "video_loading":
+            self.show_video_loading_phase()
+        elif self.current_phase == "cut_times_input":
+            self.show_cut_times_input_phase()
+    
+    def show_video_loading_phase(self):
+        """Show video loading phase"""
+        video_loader = VideoLoaderComponent(
+            self.content_frame,
+            on_video_loaded=self.on_video_loaded
+        )
+        video_loader.grid(row=0, column=0, sticky="nsew", padx=SPACING["lg"], pady=SPACING["lg"])
+    
+    def show_cut_times_input_phase(self):
+        """Show cut times input phase"""
+        cut_times_input = CutTimesInputComponent(self.content_frame)
+        cut_times_input.grid(row=0, column=0, sticky="nsew", padx=SPACING["lg"], pady=SPACING["lg"])
+    
+    def on_video_loaded(self, video_path):
+        """Handle video loaded event"""
+        self.loaded_video = video_path
+        self.current_phase = "cut_times_input"
+        self.show_current_phase()
+        print(f"📹 Video loaded: {video_path} - Moving to cut times input phase")
 
 if __name__ == "__main__":
     app = MainWindow()

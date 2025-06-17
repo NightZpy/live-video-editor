@@ -7,8 +7,11 @@ import customtkinter as ctk
 from ..styles.theme import COLORS, FONTS, SPACING, get_frame_style, get_text_style, get_button_style
 
 class VideoLoaderComponent(ctk.CTkFrame):
-    def __init__(self, parent, **kwargs):
+    def __init__(self, parent, on_video_loaded=None, **kwargs):
         super().__init__(parent, **kwargs)
+        
+        # Callback for when video is "loaded"
+        self.on_video_loaded = on_video_loaded
         
         # Configure grid
         self.grid_columnconfigure(0, weight=1)
@@ -111,7 +114,14 @@ class VideoLoaderComponent(ctk.CTkFrame):
         
         # Visual feedback
         self.select_button.configure(text="Selected! (Demo)")
-        self.after(2000, lambda: self.select_button.configure(text="Select Video File"))
+        
+        # Simulate loading and proceed to next phase
+        self.after(1500, self._proceed_to_next_phase)
+    
+    def _proceed_to_next_phase(self):
+        """Proceed to the next phase"""
+        if self.on_video_loaded:
+            self.on_video_loaded("dummy_video.mp4")
 
 if __name__ == "__main__":
     # Test the component
