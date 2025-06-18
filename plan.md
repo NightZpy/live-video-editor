@@ -134,11 +134,36 @@ python-dotenv==1.0.0
 - No thumbnails or advanced features
 - Cut selection functionality
 
-#### 3.5 Basic Video Preview
-- Simple video player for selected cut
-- Play video from start time to end time of selected cut
-- Basic play/pause controls
-- Seek to cut start automatically
+#### 3.5 Basic Video Preview with Cut Playback
+##### 3.5.1 Video Player Backend Integration
+- Extend VideoPreviewComponent with OpenCV video player
+- Implement VideoPlayerManager class for efficient video handling
+- Load video file once and reuse for all cuts (memory optimization)
+- Frame extraction and display on tkinter Canvas
+
+##### 3.5.2 Playback Controls Implementation
+- Add functional Play/Pause/Stop buttons to VideoPreviewComponent
+- Implement play state management (playing/paused/stopped)
+- Add time display showing current position and cut duration
+- Keyboard shortcuts for space bar play/pause
+
+##### 3.5.3 Interactive Timeline Enhancement
+- Replace static timeline markers with interactive Canvas-based timeline
+- Implement draggable start and end markers for cut editing
+- Add click-to-seek functionality on timeline
+- Real-time progress indicator during playback
+
+##### 3.5.4 Cut-Specific Playback Logic
+- Automatic seek to cut start time when cut is selected
+- Playback limited to cut duration (auto-stop at end time)
+- Loop playback option within cut boundaries
+- Preview frame display when paused
+
+##### 3.5.5 UI Integration and Events
+- Connect CutsListComponent selection to video preview
+- Update timeline markers when cut selection changes
+- Emit events for cut time modifications from timeline
+- Synchronize cut data between components
 
 ### PHASE 4: Advanced Core Functionality (Days 9-12)
 
@@ -300,6 +325,11 @@ hh:mm:ss - hh:mm:ss - title - description
 - [DONE] Time processing and JSON conversion
 - [DONE] Basic cuts list display
 - [ ] Basic video preview with cut playback
+  - [ ] 3.5.1 Video Player Backend Integration
+  - [ ] 3.5.2 Playback Controls Implementation
+  - [ ] 3.5.3 Interactive Timeline Enhancement
+  - [ ] 3.5.4 Cut-Specific Playback Logic
+  - [ ] 3.5.5 UI Integration and Events
 
 ### Phase 4 ✅
 - [ ] Advanced FFmpeg integration

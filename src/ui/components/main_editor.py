@@ -66,6 +66,10 @@ class MainEditorComponent(ctk.CTkFrame):
         # Video preview component
         self.video_preview = VideoPreviewComponent(preview_panel)
         self.video_preview.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        
+        # Load video if video_info is available
+        if self.video_info and 'file_path' in self.video_info:
+            self.video_preview.load_video(self.video_info['file_path'], self.video_info)
     
     def show_no_cuts_message(self):
         """Show a message when no cuts data is available"""

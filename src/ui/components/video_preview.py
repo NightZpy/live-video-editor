@@ -4,7 +4,10 @@ Main Editor - Video Preview and Controls Panel
 """
 
 import customtkinter as ctk
+import tkinter as tk
+from typing import Optional
 from ..styles.theme import get_frame_style, get_text_style, get_button_style, COLORS, SPACING
+from ...utils.video_player import VideoPlayerManager, cv2_frame_to_tkinter
 
 class VideoPreviewComponent(ctk.CTkFrame):
     def __init__(self, parent, **kwargs):
@@ -17,11 +20,25 @@ class VideoPreviewComponent(ctk.CTkFrame):
         # Current selected cut data
         self.selected_cut = None
         
+        # Video data
+        self.video_path: Optional[str] = None
+        self.video_info: Optional[dict] = None
+        
+        # Video player manager
+        self.video_player = VideoPlayerManager()
+        
         # UI state
         self.info_panel_expanded = False  # Default closed
         
+        # Video display components
+        self.video_canvas: Optional[tk.Canvas] = None
+        self.current_photo_image = None  # Keep reference to prevent garbage collection
+        
         # Setup UI
         self.setup_ui()
+        
+        # Setup video player callbacks
+        self.setup_video_callbacks()
     
     def setup_ui(self):
         """Setup the video preview interface"""
@@ -38,7 +55,7 @@ class VideoPreviewComponent(ctk.CTkFrame):
         self.create_cut_info()
     
     def create_video_preview(self):
-        """Create video preview area"""
+        """Create video preview area with Canvas for video display"""
         preview_frame_style = get_frame_style("card")
         preview_frame = ctk.CTkFrame(self, height=300, **preview_frame_style)
         preview_frame.grid(row=1, column=0, sticky="ew", padx=SPACING["md"], pady=SPACING["md"])
@@ -46,31 +63,25 @@ class VideoPreviewComponent(ctk.CTkFrame):
         preview_frame.grid_rowconfigure(0, weight=1)
         preview_frame.grid_propagate(False)
         
-        # Video placeholder
-        video_placeholder = ctk.CTkFrame(
+        # Video canvas for OpenCV frame display
+        self.video_canvas = tk.Canvas(
             preview_frame,
-            fg_color=COLORS["input_bg"],
-            corner_radius=8
+            bg=COLORS["input_bg"],
+            highlightthickness=0
         )
-        video_placeholder.grid(row=0, column=0, sticky="nsew", padx=SPACING["md"], pady=SPACING["md"])
-        video_placeholder.grid_columnconfigure(0, weight=1)
-        video_placeholder.grid_rowconfigure(0, weight=1)
+        self.video_canvas.grid(row=0, column=0, sticky="nsew", padx=SPACING["md"], pady=SPACING["md"])
         
-        # Play icon and text
-        play_icon = ctk.CTkLabel(
-            video_placeholder,
-            text="▶️",
-            font=("Segoe UI", 60)
+        # Placeholder text (shown when no video is loaded)
+        self.placeholder_text_id = self.video_canvas.create_text(
+            150, 120,  # Center position (will be updated on resize)
+            text="Video Preview\n(Select a cut to view)",
+            fill=COLORS["text_secondary"],
+            font=("Segoe UI", 14),
+            justify=tk.CENTER
         )
-        play_icon.grid(row=0, column=0)
         
-        preview_text_style = get_text_style("secondary")
-        preview_text = ctk.CTkLabel(
-            video_placeholder,
-            text="Video Preview\n(Will show selected cut)",
-            **preview_text_style
-        )
-        preview_text.grid(row=1, column=0, pady=(SPACING["sm"], 0))
+        # Bind canvas resize event to center content
+        self.video_canvas.bind("<Configure>", self.on_canvas_resize)
     
     def create_timeline(self):
         """Create timeline area"""
@@ -308,8 +319,197 @@ class VideoPreviewComponent(ctk.CTkFrame):
         )
         quality_btn.grid(row=0, column=3, padx=SPACING["sm"], pady=SPACING["sm"])
     
+    def setup_video_callbacks(self):
+        """Setup callbacks for video player events"""
+        self.video_player.set_callbacks(
+            frame_callback=self.on_video_frame,
+            time_callback=self.on_time_update,
+            end_callback=self.on_playback_end
+        )
+    
+    def on_canvas_resize(self, event):
+        """Handle canvas resize to center placeholder text"""
+        if hasattr(self, 'placeholder_text_id') and self.video_canvas:
+            canvas_width = event.width
+            canvas_height = event.height
+            self.video_canvas.coords(self.placeholder_text_id, canvas_width//2, canvas_height//2)
+    
+    def load_video(self, video_path: str, video_info: Optional[dict] = None):
+        """
+        Load video file for preview
+        
+        Args:
+            video_path: Path to the video file
+            video_info: Optional video metadata
+        """
+        self.video_path = video_path
+        self.video_info = video_info
+        
+        # Load video in video player
+        success = self.video_player.load_video(video_path)
+        
+        if success:
+            print(f"✅ Video loaded successfully: {video_path}")
+            # Hide placeholder text
+            if hasattr(self, 'placeholder_text_id') and self.video_canvas:
+                self.video_canvas.itemconfig(self.placeholder_text_id, state='hidden')
+        else:
+            print(f"❌ Failed to load video: {video_path}")
+            self.show_placeholder("Failed to load video")
+    
+    def load_cut_preview(self, cut_data: dict):
+        """
+        Load a specific cut for preview
+        
+        Args:
+            cut_data: Cut information with start_time, end_time, etc.
+        """
+        if not self.video_player.is_loaded:
+            print("⚠️ No video loaded for preview")
+            return
+        
+        # Parse times (assuming they're in "HH:MM:SS" format)
+        start_time = self.parse_time_to_seconds(cut_data.get("start_time", "00:00:00"))
+        end_time = self.parse_time_to_seconds(cut_data.get("end_time", "00:00:00"))
+        
+        # Set cut boundaries
+        self.video_player.set_cut_boundaries(start_time, end_time)
+        
+        # Seek to start of cut and show preview frame
+        self.video_player.seek_to_time(start_time)
+        
+        # Force display of current frame
+        self.show_current_frame()
+        
+        print(f"📺 Cut preview loaded: {cut_data.get('title', 'Unknown')} ({start_time:.1f}s - {end_time:.1f}s)")
+    
+    def show_current_frame(self):
+        """
+        Force display of current video frame
+        """
+        if not self.video_player.is_loaded:
+            return
+        
+        # Get current frame
+        frame_result = self.video_player.get_current_frame()
+        if frame_result:
+            ret, frame = frame_result
+            if ret:
+                current_time = self.video_player.current_time
+                self.on_video_frame(frame, current_time)
+                print(f"🖼️ Showing frame at time: {current_time:.1f}s")
+            else:
+                print("❌ Failed to get current frame")
+        else:
+            print("❌ No frame available")
+
+    def parse_time_to_seconds(self, time_str: str) -> float:
+        """
+        Parse time string (HH:MM:SS) to seconds
+        
+        Args:
+            time_str: Time in "HH:MM:SS" format
+            
+        Returns:
+            Time in seconds as float
+        """
+        try:
+            parts = time_str.split(":")
+            if len(parts) == 3:
+                hours, minutes, seconds = parts
+                return float(hours) * 3600 + float(minutes) * 60 + float(seconds)
+            elif len(parts) == 2:
+                minutes, seconds = parts
+                return float(minutes) * 60 + float(seconds)
+            else:
+                return float(parts[0])
+        except (ValueError, IndexError):
+            return 0.0
+    
+    def on_video_frame(self, frame, time_seconds: float):
+        """
+        Callback for new video frame
+        
+        Args:
+            frame: OpenCV frame
+            time_seconds: Current time in seconds
+        """
+        if not self.video_canvas:
+            return
+        
+        try:
+            # Get canvas size
+            canvas_width = self.video_canvas.winfo_width()
+            canvas_height = self.video_canvas.winfo_height()
+            
+            if canvas_width <= 1 or canvas_height <= 1:
+                return  # Canvas not ready
+            
+            # Convert frame to tkinter format and resize
+            tk_image = cv2_frame_to_tkinter(frame, (canvas_width-20, canvas_height-20))
+            
+            if tk_image is None:
+                print("❌ Failed to convert frame to tkinter format")
+                return
+            
+            # Keep reference to prevent garbage collection
+            self.current_photo_image = tk_image
+            
+            # Clear canvas and display frame
+            self.video_canvas.delete("video_frame")
+            
+            image_id = self.video_canvas.create_image(
+                canvas_width//2, canvas_height//2,
+                image=tk_image,
+                tags="video_frame"
+            )
+            
+        except Exception as e:
+            print(f"Error displaying video frame: {e}")
+    
+    def on_time_update(self, time_seconds: float):
+        """
+        Callback for time updates during playback
+        
+        Args:
+            time_seconds: Current playback time in seconds
+        """
+        # Update time display (will be implemented in next task)
+        pass
+    
+    def on_playback_end(self):
+        """Callback when playback reaches the end of cut"""
+        print("🏁 Cut playback ended")
+    
+    def show_placeholder(self, message: str = "Video Preview\n(Select a cut to view)"):
+        """
+        Show placeholder message in video canvas
+        
+        Args:
+            message: Message to display
+        """
+        if not self.video_canvas:
+            return
+        
+        # Clear any video frames
+        self.video_canvas.delete("video_frame")
+        
+        # Show/update placeholder text
+        if hasattr(self, 'placeholder_text_id'):
+            self.video_canvas.itemconfig(self.placeholder_text_id, text=message, state='normal')
+        else:
+            canvas_width = self.video_canvas.winfo_width()
+            canvas_height = self.video_canvas.winfo_height()
+            self.placeholder_text_id = self.video_canvas.create_text(
+                canvas_width//2, canvas_height//2,
+                text=message,
+                fill=COLORS["text_secondary"],
+                font=("Segoe UI", 14),
+                justify=tk.CENTER
+            )
+    
     def update_cut_info(self, cut_data):
-        """Update the display with selected cut information"""
+        """Update the display with selected cut information and load cut preview"""
         self.selected_cut = cut_data
         
         if cut_data:
@@ -323,7 +523,17 @@ class VideoPreviewComponent(ctk.CTkFrame):
             
             self.desc_entry.delete(0, "end")
             self.desc_entry.insert(0, cut_data.get("description", ""))
+            
+            # Load cut preview if video is available
+            if self.video_player.is_loaded:
+                self.load_cut_preview(cut_data)
     
+    def release_video(self):
+        """Release video resources"""
+        self.video_player.release()
+        self.current_photo_image = None
+        self.show_placeholder()
+
     # Event handlers (UI only for now)
     def on_export_single(self):
         """Handle export single cut"""
