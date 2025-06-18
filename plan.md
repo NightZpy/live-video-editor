@@ -297,8 +297,8 @@ hh:mm:ss - hh:mm:ss - title - description
 ### Phase 3 (Basic Core Functionality) 🔄
 - [DONE] Real video loading (.mp4 files)
 - [DONE] Real time file loading and parsing
-- [ ] Time processing and JSON conversion
-- [ ] Basic cuts list display
+- [DONE] Time processing and JSON conversion
+- [DONE] Basic cuts list display
 - [ ] Basic video preview with cut playback
 
 ### Phase 4 ✅

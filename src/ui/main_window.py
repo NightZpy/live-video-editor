@@ -129,10 +129,39 @@ class MainWindow(ctk.CTk):
     
     def show_main_editor_phase(self):
         """Show main editor phase"""
-        main_editor = MainEditorComponent(self.content_frame)
+        # Convert loaded cuts data to the format expected by MainEditorComponent
+        cuts_data = self._convert_cuts_data_for_editor(self.loaded_cuts_data)
+        
+        main_editor = MainEditorComponent(
+            self.content_frame, 
+            cuts_data=cuts_data,
+            video_info=self.loaded_video_info
+        )
         main_editor.grid(row=0, column=0, sticky="nsew")
-        # Load mock data for testing
-        main_editor.set_mock_data()
+        
+        # Store reference for potential updates
+        self.main_editor = main_editor
+    
+    def _convert_cuts_data_for_editor(self, cuts_data):
+        """Convert loaded cuts data to the format expected by MainEditorComponent"""
+        if not cuts_data or 'cuts' not in cuts_data:
+            return []
+        
+        # Convert from text_utils format to UI format
+        converted_cuts = []
+        for cut in cuts_data['cuts']:
+            converted_cut = {
+                "id": cut.get("id"),
+                "title": cut.get("title", f"Cut {cut.get('id', 1)}"),
+                "description": cut.get("description", ""),
+                "start_time": cut.get("start", "00:00:00"),
+                "end_time": cut.get("end", "00:00:00"),
+                "duration": cut.get("duration", "00:00:00"),
+                "status": "ready"  # Default status for parsed cuts
+            }
+            converted_cuts.append(converted_cut)
+        
+        return converted_cuts
     
     def on_video_loaded(self, video_info):
         """Handle video loaded event"""

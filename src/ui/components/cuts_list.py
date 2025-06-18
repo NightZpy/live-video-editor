@@ -7,11 +7,12 @@ import customtkinter as ctk
 from ..styles.theme import get_frame_style, get_text_style, get_button_style, COLORS, SPACING
 
 class CutsListComponent(ctk.CTkFrame):
-    def __init__(self, parent, on_cut_selected=None, **kwargs):
+    def __init__(self, parent, on_cut_selected=None, video_info=None, **kwargs):
         super().__init__(parent, **kwargs)
         
         # Callback for when a cut is selected
         self.on_cut_selected = on_cut_selected
+        self.video_info = video_info
         
         # Configure grid
         self.grid_columnconfigure(0, weight=1)
@@ -36,7 +37,7 @@ class CutsListComponent(ctk.CTkFrame):
     def create_header(self):
         """Create header with title and counter"""
         header_frame_style = get_frame_style("card")
-        header_frame = ctk.CTkFrame(self, height=60, **header_frame_style)
+        header_frame = ctk.CTkFrame(self, height=80, **header_frame_style)
         header_frame.grid(row=0, column=0, sticky="ew", padx=SPACING["md"], pady=SPACING["md"])
         header_frame.grid_columnconfigure(0, weight=1)
         header_frame.grid_propagate(False)
@@ -48,7 +49,21 @@ class CutsListComponent(ctk.CTkFrame):
             text="Video Cuts",
             **title_style
         )
-        self.title_label.grid(row=0, column=0, pady=SPACING["md"])
+        self.title_label.grid(row=0, column=0, pady=(SPACING["md"], SPACING["xs"]))
+        
+        # Video info (if available)
+        if self.video_info:
+            video_name = self.video_info.get('filename', 'Unknown video')
+            video_duration = self.video_info.get('duration', 'Unknown duration')
+            video_info_text = f"📹 {video_name} • {video_duration}"
+            
+            video_info_style = get_text_style("small")
+            video_info_label = ctk.CTkLabel(
+                header_frame,
+                text=video_info_text,
+                **video_info_style
+            )
+            video_info_label.grid(row=1, column=0, pady=SPACING["xs"])
         
         # Counter
         counter_style = get_text_style("secondary")
@@ -57,7 +72,8 @@ class CutsListComponent(ctk.CTkFrame):
             text="0 cuts",
             **counter_style
         )
-        self.counter_label.grid(row=1, column=0, pady=(0, SPACING["sm"]))
+        counter_row = 2 if self.video_info else 1
+        self.counter_label.grid(row=counter_row, column=0, pady=(SPACING["xs"], SPACING["sm"]))
     
     def create_cuts_list(self):
         """Create scrollable cuts list"""
