@@ -108,52 +108,86 @@ python-dotenv==1.0.0
 # - Cancel option
 ```
 
-### PHASE 3: Core Functionality Implementation (Days 6-10)
+### PHASE 3: Basic Core Functionality (Days 6-8)
 
-#### 3.1 Video Processing
-- FFmpeg integration
-- Metadata extraction
+#### 3.1 Real Video Loading (Window 1)
+- Actual .mp4 file loading functionality
+- Video metadata extraction (duration, resolution)
+- File validation and error handling
+- Store video path for processing
+
+#### 3.2 Real Time File Loading (Window 2)
+- Load text files with time formats
+- File reading and parsing
+- Display loaded content
+- Manual input processing
+
+#### 3.3 Time Processing & JSON Conversion
+- Parse manual input format: `hh:mm:ss - hh:mm:ss - title - description`
+- Convert to internal JSON format
+- Basic validation and error reporting
+- Generate cuts data structure
+
+#### 3.4 Basic Cuts List (Main Editor)
+- Display cuts in simple list format
+- Show title, description, start/end times
+- No thumbnails or advanced features
+- Cut selection functionality
+
+#### 3.5 Basic Video Preview
+- Simple video player for selected cut
+- Play video from start time to end time of selected cut
+- Basic play/pause controls
+- Seek to cut start automatically
+
+### PHASE 4: Advanced Core Functionality (Days 9-12)
+
+#### 4.1 Video Processing
+- FFmpeg integration for cutting
+- Metadata extraction enhancement
 - Thumbnail generation
-- Segment preview
+- Segment preview improvements
 
-#### 3.2 Time Parser
-- Format validation `hh:mm:ss - hh:mm:ss - title - description`
-- JSON conversion
+#### 4.2 Enhanced Time Parser
+- Advanced format validation
+- Multiple format support
 - Descriptive error handling
+- Import/export functionality
 
-#### 3.3 LLM Integration
+#### 4.3 LLM Integration
 - API connection
 - Prompt engineering for time extraction
 - JSON response processing
+- Automatic timestamp detection
 
-### PHASE 4: Advanced Features (Days 11-14)
+### PHASE 5: Advanced Features (Days 13-16)
 
-#### 4.1 Interactive Timeline
+#### 5.1 Interactive Timeline
 - Playback controls
 - Visual start/end markers
 - Drag to adjust times
 - Temporal zoom
 
-#### 4.2 Export System
+#### 5.2 Export System
 - Individual export
 - Batch export
 - Destination folder selector
 - Original quality preservation
 
-#### 4.3 State Management
+#### 5.3 State Management
 - Automatic project saving
 - Session recovery
 - Undo/Redo for edits
 
-### PHASE 5: Polish and Optimization (Days 15-16)
+### PHASE 6: Polish and Optimization (Days 17-18)
 
-#### 5.1 UX Enhancements
+#### 6.1 UX Enhancements
 - Smooth animations
 - Enhanced visual feedback
 - Keyboard shortcuts
 - Informative tooltips
 
-#### 5.2 Performance
+#### 6.2 Performance
 - Asynchronous loading
 - Thumbnail caching
 - Memory optimization
@@ -260,30 +294,37 @@ hh:mm:ss - hh:mm:ss - title - description
 - [DONE] Main editor layout (UI)
 - [DONE] Progress window (UI)
 
-### Phase 2.5 (Must-Have Enhancements) 🔄
+### Phase 3 (Basic Core Functionality) 🔄
+- [DONE] Real video loading (.mp4 files)
+- [DONE] Real time file loading and parsing
+- [ ] Time processing and JSON conversion
+- [ ] Basic cuts list display
+- [ ] Basic video preview with cut playback
+
+### Phase 4 ✅
+- [ ] Advanced FFmpeg integration
+- [ ] Enhanced time parser
+- [ ] LLM connection
+- [ ] Advanced validations
+
+### Phase 5 ✅
+- [ ] Interactive timeline
+- [ ] Export system
+- [ ] State management
+- [ ] Advanced video preview
+
+### Phase 6 ✅
+- [ ] Animations
+- [ ] Optimizations
+- [ ] Testing
+- [ ] Documentation
+
+### Final Phase (Must-Have Enhancements) 🔄
 - [ ] Syntax highlighting for manual input
 - [ ] Real-time validation
 - [ ] Valid lines counter
 - [ ] Auto-completion suggestions
 - [ ] Line numbers display
-
-### Phase 3 ✅
-- [ ] FFmpeg integration
-- [ ] Time parser
-- [ ] LLM connection
-- [ ] Validations
-
-### Phase 4 ✅
-- [ ] Interactive timeline
-- [ ] Export system
-- [ ] State management
-- [ ] Video preview
-
-### Phase 5 ✅
-- [ ] Animations
-- [ ] Optimizations
-- [ ] Testing
-- [ ] Documentation
 
 ## 🔧 Technical Decisions & Library Usage
 

@@ -1,9 +1,17 @@
 """
 Manual Input Component
-Phase 2.3 - Manual Time Entry Interface
+Phase 2.3 - Manual Time Entry Interface with real functionality
 """
 
 import customtkinter as ctk
+import os
+import sys
+from tkinter import messagebox
+
+# Add src to path for imports
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+
+from src.utils.text_utils import parse_cuts_content, format_cuts_preview
 from ..styles.theme import get_frame_style, get_text_style, get_button_style, COLORS, SPACING
 
 class ManualInputComponent(ctk.CTkFrame):
@@ -12,6 +20,10 @@ class ManualInputComponent(ctk.CTkFrame):
         
         # Callback for when processing is complete
         self.on_process_complete = on_process_complete
+        
+        # State
+        self.is_processing = False
+        self.processed_cuts_data = None
         
         # Configure grid
         self.grid_columnconfigure(0, weight=1)
@@ -167,24 +179,48 @@ Enter your timestamps here..."""
         self.process_btn.configure(state="disabled")
     
     def on_process(self):
-        """Handle process button"""
+        """Handle process button with real parsing"""
         content = self.text_area.get("1.0", "end").strip()
-        if content and not self.placeholder_active:
-            # Simulate processing
-            self.process_btn.configure(text="Processing...", state="disabled")
+        if not content or self.placeholder_active:
+            messagebox.showwarning("No Content", "Please enter some cut times first")
+            return
+        
+        if self.is_processing:
+            return
             
-            # Simulate delay and complete
-            self.after(2000, lambda: self._complete_processing(content))
+        self.is_processing = True
+        self.process_btn.configure(text="Processing...", state="disabled")
+        
+        # Use the central parser (same as file parsing)
+        is_valid, error_message, cuts_data = parse_cuts_content(content, "Manual Input")
+        
+        if not is_valid:
+            self.is_processing = False
+            self.process_btn.configure(text="Process Timestamps", state="normal")
+            messagebox.showerror("Parsing Error", f"Error in your input:\n\n{error_message}")
+            return
+        
+        if not cuts_data:
+            self.is_processing = False
+            self.process_btn.configure(text="Process Timestamps", state="normal")
+            messagebox.showerror("Error", "Could not parse the input content")
+            return
+        
+        # Success!
+        self.processed_cuts_data = cuts_data
+        self.process_btn.configure(text="✅ Processed!", fg_color=COLORS["success"])
+        
+        # Show preview and proceed after delay
+        preview = format_cuts_preview(cuts_data)
+        print(f"📝 Manual input processed successfully!\n{preview}")
+        
+        self.after(2000, self.proceed_with_processed_data)
+    
+    def proceed_with_processed_data(self):
+        """Proceed to next phase with processed data"""
+        if self.on_process_complete and self.processed_cuts_data:
+            self.on_process_complete("complete", self.processed_cuts_data)
     
     def _complete_processing(self, content):
-        """Complete the processing simulation"""
-        print(f"📝 Processing manual timestamps:\n{content}")
-        
-        if self.on_process_complete:
-            # Simulate parsed data
-            mock_data = {
-                "method": "manual",
-                "raw_content": content,
-                "cuts_count": len([line for line in content.split('\n') if line.strip()])
-            }
-            self.on_process_complete("complete", mock_data)
+        """Remove old simulation method"""
+        pass

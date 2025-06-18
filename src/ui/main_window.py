@@ -29,7 +29,8 @@ class MainWindow(ctk.CTk):
         
         # Current phase tracking
         self.current_phase = "video_loading"
-        self.loaded_video = None
+        self.loaded_video_info = None
+        self.loaded_cuts_data = None
         
         # Initialize UI
         self.setup_ui()
@@ -133,12 +134,12 @@ class MainWindow(ctk.CTk):
         # Load mock data for testing
         main_editor.set_mock_data()
     
-    def on_video_loaded(self, video_path):
+    def on_video_loaded(self, video_info):
         """Handle video loaded event"""
-        self.loaded_video = video_path
+        self.loaded_video_info = video_info
         self.current_phase = "cut_times_input"
         self.show_current_phase()
-        print(f"📹 Video loaded: {video_path} - Moving to cut times input phase")
+        print(f"📹 Video loaded: {video_info['filename']} ({video_info['duration']}) - Moving to cut times input phase")
     
     def on_cut_times_option_selected(self, option, data=None):
         """Handle cut times option selection"""
@@ -148,10 +149,19 @@ class MainWindow(ctk.CTk):
             self.current_phase = "manual_input"
             self.show_current_phase()
         elif option == "file_upload":
-            print("📄 File upload selected - will implement in Phase 3")
+            if data:
+                # File was successfully loaded and parsed
+                self.loaded_cuts_data = data
+                print(f"📄 File upload completed: {data.get('total_cuts', 0)} cuts loaded")
+                # Skip manual input and go directly to main editor
+                self.current_phase = "main_editor"
+                self.show_current_phase()
+            else:
+                print("📄 File upload selected but no data provided")
         elif option == "automatic_analysis":
             api_key = data.get('api_key', 'N/A') if data else 'N/A'
             print(f"🤖 AI analysis selected with API key: {api_key}")
+            # TODO: Implement AI analysis in Phase 4
     
     def on_manual_input_complete(self, action, data=None):
         """Handle manual input completion"""
@@ -159,7 +169,10 @@ class MainWindow(ctk.CTk):
             self.current_phase = "cut_times_input"
             self.show_current_phase()
         elif action == "complete":
-            print(f"✅ Manual input complete: {data}")
+            if data:
+                # Manual input was completed successfully
+                self.loaded_cuts_data = data
+                print(f"✅ Manual input complete: {data.get('total_cuts', 0)} cuts processed")
             # Navigate to main editor
             self.current_phase = "main_editor"
             self.show_current_phase()
@@ -170,7 +183,8 @@ class MainWindow(ctk.CTk):
         
         # Reset state
         self.current_phase = "video_loading"
-        self.loaded_video = None
+        self.loaded_video_info = None
+        self.loaded_cuts_data = None
         
         # Show video loading phase
         self.show_current_phase()

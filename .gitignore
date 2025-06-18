@@ -184,3 +184,4 @@ cython_debug/
 .Trashes
 ehthumbs.db
 Thumbs.db
+test_cuts.txt
