@@ -293,11 +293,11 @@ class VideoPlayerManager:
 
 def cv2_frame_to_tkinter(frame, target_size: Optional[Tuple[int, int]] = None):
     """
-    Convert OpenCV frame to tkinter-compatible PhotoImage
+    Convert OpenCV frame to tkinter-compatible PhotoImage with proper aspect ratio
     
     Args:
         frame: OpenCV frame (BGR format)
-        target_size: Optional (width, height) tuple for resizing
+        target_size: Optional (width, height) tuple for canvas size
         
     Returns:
         tkinter PhotoImage object or None if PIL not available
@@ -314,15 +314,47 @@ def cv2_frame_to_tkinter(frame, target_size: Optional[Tuple[int, int]] = None):
         
         # Convert to PIL Image
         pil_image = Image.fromarray(frame_rgb)
+        original_width, original_height = pil_image.size
         
-        # Resize if target size specified
-        if target_size:
-            pil_image = pil_image.resize(target_size, Image.Resampling.LANCZOS)
+        # If no target size specified, return original
+        if not target_size:
+            tk_image = ImageTk.PhotoImage(pil_image)
+            print(f"✅ Frame converted (original size): {original_width}x{original_height}")
+            return tk_image
+        
+        canvas_width, canvas_height = target_size
+        
+        # Calculate aspect ratios
+        original_aspect = original_width / original_height
+        canvas_aspect = canvas_width / canvas_height
+        
+        # Calculate scaled size maintaining aspect ratio
+        if original_aspect > canvas_aspect:
+            # Video is wider than canvas - fit by width
+            scaled_width = canvas_width
+            scaled_height = int(canvas_width / original_aspect)
+        else:
+            # Video is taller than canvas - fit by height
+            scaled_height = canvas_height
+            scaled_width = int(canvas_height * original_aspect)
+        
+        # Resize image maintaining aspect ratio
+        scaled_image = pil_image.resize((scaled_width, scaled_height), Image.Resampling.LANCZOS)
+        
+        # Create black canvas
+        canvas_image = Image.new('RGB', (canvas_width, canvas_height), (0, 0, 0))
+        
+        # Calculate position to center the scaled image
+        x_offset = (canvas_width - scaled_width) // 2
+        y_offset = (canvas_height - scaled_height) // 2
+        
+        # Paste scaled image onto black canvas
+        canvas_image.paste(scaled_image, (x_offset, y_offset))
         
         # Convert to tkinter PhotoImage
-        tk_image = ImageTk.PhotoImage(pil_image)
+        tk_image = ImageTk.PhotoImage(canvas_image)
         
-        print(f"✅ Frame converted successfully, size: {tk_image.width()}x{tk_image.height()}")
+        print(f"✅ Frame converted with aspect ratio: {canvas_width}x{canvas_height} (video: {scaled_width}x{scaled_height})")
         return tk_image
         
     except Exception as e:
