@@ -21,10 +21,10 @@ class MainEditorComponent(ctk.CTkFrame):
         self.cuts_data = cuts_data or []
         self.video_info = video_info
         
-        # Setup UI
+        # Setup UI first
         self.setup_ui()
         
-        # Load initial data
+        # Load initial data after UI is setup (so video is loaded first)
         if self.cuts_data:
             self.load_cuts_data()
         else:
@@ -70,6 +70,9 @@ class MainEditorComponent(ctk.CTkFrame):
         # Load video if video_info is available
         if self.video_info and 'file_path' in self.video_info:
             self.video_preview.load_video(self.video_info['file_path'], self.video_info)
+            
+            # After loading video, check if there's a selected cut and load its preview
+            self.sync_selected_cut_with_preview()
     
     def show_no_cuts_message(self):
         """Show a message when no cuts data is available"""
@@ -112,9 +115,32 @@ class MainEditorComponent(ctk.CTkFrame):
         desc_label.grid(row=2, column=0, pady=(SPACING["sm"], SPACING["xl"]))
 
     def load_cuts_data(self):
-        """Load cuts data into the interface"""
+        """Load cuts data into the interface and sync with preview"""
         self.cuts_list.load_cuts(self.cuts_data)
-    
+        
+        # Schedule sync after a short delay to ensure video is fully loaded
+        self.after(100, self.sync_selected_cut_with_preview)
+
+    def sync_selected_cut_with_preview(self):
+        """Sync the selected cut from cuts list with video preview"""
+        # Get the currently selected cut from cuts list
+        if (hasattr(self.cuts_list, 'selected_cut_id') and 
+            self.cuts_list.selected_cut_id is not None and 
+            hasattr(self.cuts_list, 'cuts_data') and 
+            self.cuts_list.cuts_data):
+            
+            selected_index = self.cuts_list.selected_cut_id
+            if 0 <= selected_index < len(self.cuts_list.cuts_data):
+                selected_cut = self.cuts_list.cuts_data[selected_index]
+                print(f"🔄 Syncing selected cut with preview: {selected_cut.get('title', 'Unknown')} (Index: {selected_index})")
+                
+                # Update video preview with the selected cut
+                self.video_preview.update_cut_info(selected_cut)
+            else:
+                print(f"⚠️ Selected cut index {selected_index} out of range")
+        else:
+            print("📋 No cut selected to sync with preview")
+
     def on_cut_selected(self, cut_data, index):
         """Handle cut selection from the cuts list"""
         print(f"📝 Cut selected: {cut_data.get('title', 'Unknown')} (Index: {index})")
