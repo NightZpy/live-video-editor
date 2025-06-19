@@ -784,23 +784,77 @@ class VideoPreviewComponent(ctk.CTkFrame):
     # Event handlers (UI only for now)
     def on_export_single(self):
         """Handle export single cut"""
-        print(f"🎬 Export single cut: {self.selected_cut.get('title', 'Unknown') if self.selected_cut else 'None'}")
+        if not self.selected_cut:
+            print("⚠️ No cut selected for export")
+            return
+            
+        if not self.video_path:
+            print("⚠️ No video loaded for export")
+            return
+        
+        print(f"🎬 Export single cut: {self.selected_cut.get('title', 'Unknown')}")
+        
+        # Convert the cut data to the expected format for export
+        cut_export_data = {
+            "start": self.selected_cut.get("start_time", "00:00:00"),
+            "end": self.selected_cut.get("end_time", "00:00:00"), 
+            "title": self.selected_cut.get("title", "Untitled Cut"),
+            "description": self.selected_cut.get("description", ""),
+            "id": self.selected_cut.get("id", 1)
+        }
         
         # Import here to avoid circular imports
         from .progress_dialog import ProgressDialog
         
-        # Open progress dialog
-        progress_dialog = ProgressDialog(self.winfo_toplevel(), export_type="single")
+        # Create and show export dialog with real data
+        dialog = ProgressDialog(
+            parent=self.winfo_toplevel(),
+            video_path=self.video_path,
+            cut_data=cut_export_data,
+            quality="original"
+        )
     
     def on_export_all(self):
         """Handle export all cuts"""
         print("🎬 Export all cuts")
         
+        if not self.video_path:
+            print("⚠️ No video loaded for export")
+            return
+        
+        # Get all cuts data from the main window
+        main_window = self.winfo_toplevel()
+        cuts_data = []
+        
+        # Try to get cuts data from main window
+        if hasattr(main_window, 'cuts_data') and main_window.cuts_data:
+            raw_cuts = main_window.cuts_data.get('cuts', [])
+            
+            # Convert cuts to expected format for export
+            for cut in raw_cuts:
+                cut_export_data = {
+                    "start": cut.get("start", cut.get("start_time", "00:00:00")),
+                    "end": cut.get("end", cut.get("end_time", "00:00:00")),
+                    "title": cut.get("title", "Untitled Cut"),
+                    "description": cut.get("description", ""),
+                    "id": cut.get("id", len(cuts_data) + 1)
+                }
+                cuts_data.append(cut_export_data)
+        
+        if not cuts_data:
+            print("⚠️ No cuts data available for batch export")
+            return
+        
         # Import here to avoid circular imports
         from .progress_dialog import ProgressDialog
         
-        # Open progress dialog
-        progress_dialog = ProgressDialog(self.winfo_toplevel(), export_type="all")
+        # Create and show export dialog with real data
+        dialog = ProgressDialog(
+            parent=self.winfo_toplevel(),
+            video_path=self.video_path,
+            cuts_data=cuts_data,
+            quality="original"
+        )
     
     def on_quality_settings(self):
         """Handle quality settings"""

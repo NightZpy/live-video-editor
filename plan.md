@@ -337,15 +337,22 @@ hh:mm:ss - hh:mm:ss - title - description
   - [DONE] 3.5.4 Cut-Specific Playback Logic
   - [DONE] 3.5.5 UI Integration and Events
 
-### Phase 4 ✅
-- [ ] Advanced FFmpeg integration
+### Phase 4 🔄
+- [DONE] Advanced FFmpeg integration
 - [ ] Enhanced time parser
 - [ ] LLM connection
 - [ ] Advanced validations
 
-### Phase 5 ✅
+### Phase 5 🔄
 - [ ] Interactive timeline
-- [ ] Export system
+- [DONE] Export system
+  - [DONE] Individual cut export with FFmpeg-python
+  - [DONE] Batch export for multiple cuts
+  - [DONE] Real-time progress tracking with ThreadedVideoProcessor
+  - [DONE] Output directory selection
+  - [DONE] Quality settings support (original, high, medium, low)
+  - [DONE] Error handling and cancellation support
+  - [DONE] UI integration with ProgressDialog
 - [ ] State management
 - [ ] Advanced video preview
 
