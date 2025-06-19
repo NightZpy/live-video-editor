@@ -386,8 +386,41 @@ class CutTimesInputComponent(ctk.CTkFrame):
         api_key = self.api_key_entry.get().strip()
         if api_key:
             print(f"🤖 Automatic analysis selected with API key")
+            
+            # Get video info from parent
+            main_window = self.winfo_toplevel()
+            if hasattr(main_window, 'loaded_video_info') and main_window.loaded_video_info:
+                video_info = main_window.loaded_video_info
+                video_path = video_info.get('file_path')
+                
+                if video_path:
+                    # Show LLM progress dialog
+                    from .llm_progress_dialog import show_llm_progress_dialog
+                    show_llm_progress_dialog(
+                        parent=self.winfo_toplevel(),
+                        video_path=video_path,
+                        video_info=video_info,
+                        api_key=api_key,
+                        completion_callback=self.on_llm_analysis_complete
+                    )
+                else:
+                    print("⚠️ Video file path not found in loaded video info")
+            else:
+                print("⚠️ No video loaded for analysis")
+        else:
+            print("⚠️ No API key provided")
+    
+    def on_llm_analysis_complete(self, success: bool, result: dict):
+        """Handle completion of LLM analysis"""
+        if success and result:
+            print("✅ LLM analysis completed successfully")
+            print(f"📊 Generated {len(result.get('cuts', []))} cuts")
+            
+            # Pass the complete result to the callback (same format as manual/file input)
             if self.on_option_selected:
-                self.on_option_selected("automatic_analysis", {"api_key": api_key})
+                self.on_option_selected("automatic_analysis", result)
+        else:
+            print("❌ LLM analysis failed or was cancelled")
     
     def on_api_key_change(self, event):
         """Handle API key input change"""
