@@ -323,8 +323,7 @@ class ProgressDialog(ctk.CTkToplevel):
             # Show success message
             messagebox.showinfo("Export Complete", f"{message}\n\nFiles saved to:\n{self.output_dir}")
             
-            # Auto-close after a short delay
-            self.after(2000, self.on_close_window)
+            # Keep dialog open with Close button (removed auto-close)
         else:
             self.current_file_label.configure(text=f"❌ Export Failed")
             self.time_estimate_label.configure(text=message)

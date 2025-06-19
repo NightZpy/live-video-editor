@@ -826,9 +826,9 @@ class VideoPreviewComponent(ctk.CTkFrame):
         main_window = self.winfo_toplevel()
         cuts_data = []
         
-        # Try to get cuts data from main window
-        if hasattr(main_window, 'cuts_data') and main_window.cuts_data:
-            raw_cuts = main_window.cuts_data.get('cuts', [])
+        # Try to get cuts data from main window (using loaded_cuts_data)
+        if hasattr(main_window, 'loaded_cuts_data') and main_window.loaded_cuts_data:
+            raw_cuts = main_window.loaded_cuts_data.get('cuts', [])
             
             # Convert cuts to expected format for export
             for cut in raw_cuts:
@@ -841,9 +841,43 @@ class VideoPreviewComponent(ctk.CTkFrame):
                 }
                 cuts_data.append(cut_export_data)
         
+        # Also try to get from main_editor component as a fallback
+        elif hasattr(main_window, 'main_editor') and hasattr(main_window.main_editor, 'cuts_list'):
+            # Get cuts from the CutsListComponent
+            cuts_list_component = main_window.main_editor.cuts_list
+            if hasattr(cuts_list_component, 'cuts_data') and cuts_list_component.cuts_data:
+                raw_cuts = cuts_list_component.cuts_data
+                
+                # Convert cuts to expected format for export
+                for cut in raw_cuts:
+                    cut_export_data = {
+                        "start": cut.get("start_time", "00:00:00"),
+                        "end": cut.get("end_time", "00:00:00"),
+                        "title": cut.get("title", "Untitled Cut"),
+                        "description": cut.get("description", ""),
+                        "id": cut.get("id", len(cuts_data) + 1)
+                    }
+                    cuts_data.append(cut_export_data)
+        
         if not cuts_data:
             print("⚠️ No cuts data available for batch export")
+            print(f"Debug: main_window has loaded_cuts_data: {hasattr(main_window, 'loaded_cuts_data')}")
+            if hasattr(main_window, 'loaded_cuts_data'):
+                print(f"Debug: loaded_cuts_data value: {main_window.loaded_cuts_data}")
             return
+        
+        print(f"📊 Found {len(cuts_data)} cuts for batch export")
+        
+        # Import here to avoid circular imports
+        from .progress_dialog import ProgressDialog
+        
+        # Create and show export dialog with real data
+        dialog = ProgressDialog(
+            parent=self.winfo_toplevel(),
+            video_path=self.video_path,
+            cuts_data=cuts_data,
+            quality="original"
+        )
         
         # Import here to avoid circular imports
         from .progress_dialog import ProgressDialog
