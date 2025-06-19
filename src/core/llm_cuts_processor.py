@@ -30,7 +30,7 @@ class LLMCutsProcessor:
         """
         self.api_key = api_key
         
-        # Initialize OpenAI client with error handling
+        # Initia ize OpenAI client with error handling
         try:
             print(f"🔑 Initializing OpenAI client...")
             self.openai_client = openai.OpenAI(api_key=api_key)
@@ -69,22 +69,34 @@ class LLMCutsProcessor:
         
     def set_progress_callback(self, callback: Callable):
         """Set callback function for progress updates"""
+        print(f"📞 LLM processor setting progress callback: {callback}")
         self.progress_callback = callback
         
     def cancel_processing(self):
         """Cancel the current processing operation"""
+        print(f"⚠️ LLM processor cancelled")
         self.is_cancelled = True
         
     def _update_progress(self, phase: str, progress: float, message: str = ""):
         """Update progress and call callback if set"""
+        print(f"📈 LLM processor updating progress: phase={phase}, progress={progress:.1f}%, message='{message}', callback_set={self.progress_callback is not None}")
+        
         if self.is_cancelled:
+            print(f"⚠️ LLM processor ignoring progress update - cancelled")
             return
             
         self.current_phase = phase
         self.current_progress = progress
         
         if self.progress_callback:
-            self.progress_callback(phase, progress, message)
+            print(f"📞 LLM processor calling progress callback...")
+            try:
+                self.progress_callback(phase, progress, message)
+                print(f"✅ LLM processor progress callback completed")
+            except Exception as e:
+                print(f"❌ LLM processor progress callback error: {str(e)}")
+        else:
+            print(f"⚠️ LLM processor no progress callback set")
     
     def process_video_async(self, video_path: str, video_info: Dict, completion_callback: Callable):
         """

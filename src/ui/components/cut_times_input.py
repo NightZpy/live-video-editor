@@ -412,15 +412,23 @@ class CutTimesInputComponent(ctk.CTkFrame):
     
     def on_llm_analysis_complete(self, success: bool, result: dict):
         """Handle completion of LLM analysis"""
+        print(f"🎯 Cut times input received LLM completion: success={success}, has_result={result is not None}")
+        
         if success and result:
             print("✅ LLM analysis completed successfully")
             print(f"📊 Generated {len(result.get('cuts', []))} cuts")
+            print(f"📊 Result structure: {type(result)}")
+            print(f"📊 Result keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
             
             # Pass the complete result to the callback (same format as manual/file input)
             if self.on_option_selected:
+                print(f"🎯 Calling on_option_selected callback with automatic_analysis")
                 self.on_option_selected("automatic_analysis", result)
+            else:
+                print(f"⚠️ No on_option_selected callback set")
         else:
             print("❌ LLM analysis failed or was cancelled")
+            print(f"❌ Success: {success}, Result: {result}")
     
     def on_api_key_change(self, event):
         """Handle API key input change"""

@@ -5,6 +5,8 @@ Shows progress during AI-powered video analysis
 
 import customtkinter as ctk
 import tkinter as tk
+import queue
+import threading
 from typing import Callable, Optional, Dict, Any
 from ..styles.theme import get_frame_style, get_text_style, get_button_style, COLORS, SPACING
 
@@ -40,9 +42,14 @@ class LLMProgressDialog(ctk.CTkToplevel):
         self.is_cancelled = False
         self.is_completed = False
         
+        # Thread-safe communication
+        self.update_queue = queue.Queue()
+        self.completion_queue = queue.Queue()
+        
         # Setup dialog
         self.setup_dialog()
         self.create_ui()
+        self.start_queue_processing()
         self.start_processing()
     
     def setup_dialog(self):
@@ -162,52 +169,218 @@ class LLMProgressDialog(ctk.CTkToplevel):
     def start_processing(self):
         """Start the LLM processing"""
         try:
+            print(f"🔄 Dialog starting LLM processing...")
+            
+            # Test UI updates first
+            self.test_ui_updates()
+            
             # Create processor
             LLMCutsProcessor = get_llm_processor()
             self.processor = LLMCutsProcessor(self.api_key)
+            print(f"🔄 Dialog setting progress callback...")
             self.processor.set_progress_callback(self.on_progress_update)
             
+            print(f"🔄 Dialog starting async processing...")
             # Start async processing
             self.processor.process_video_async(
                 self.video_path,
                 self.video_info,
                 self.on_processing_complete
             )
+            print(f"🔄 Dialog async processing started")
             
         except Exception as e:
+            print(f"❌ Dialog error starting processing: {str(e)}")
             self.on_processing_complete(False, {}, str(e))
     
+    def test_ui_updates(self):
+        """Test if UI updates work at all"""
+        print(f"🧪 Testing UI updates...")
+        try:
+            # Test immediate update
+            self.phase_label.configure(text="Testing UI Updates...")
+            self.progress_bar.set(0.1)
+            self.progress_label.configure(text="10%")
+            self.status_label.configure(text="UI test in progress...")
+            self.update_idletasks()
+            self.update()
+            print(f"🧪 UI test update completed")
+            
+            # Schedule a reset after 1 second
+            def reset_ui():
+                self.phase_label.configure(text="Initializing...")
+                self.progress_bar.set(0)
+                self.progress_label.configure(text="0%")
+                self.status_label.configure(text="Starting AI analysis...")
+                self.update_idletasks()
+                print(f"🧪 UI reset completed")
+            
+            self.after(1000, reset_ui)
+            
+        except Exception as e:
+            print(f"❌ UI test failed: {str(e)}")
+    
     def on_progress_update(self, phase: str, progress: float, message: str):
-        """Handle progress updates from processor"""
+        """Handle progress updates from processor - THREAD SAFE ONLY"""
+        print(f"📊 Dialog received progress update: phase={phase}, progress={progress:.1f}%, message='{message}'")
+        
         if self.is_cancelled:
+            print(f"⚠️ Dialog ignoring progress update - cancelled")
             return
         
-        # Update UI on main thread
-        self.after(0, self._update_ui_progress, phase, progress, message)
+        # Use thread-safe queue instead of direct UI updates
+        print(f"📊 Dialog queuing UI update safely...")
+        try:
+            # Put update in queue - this is thread-safe
+            self.update_queue.put((phase, progress, message))
+            print(f"📊 Dialog UI update queued successfully")
+        except Exception as e:
+            print(f"❌ Dialog error queuing UI update: {str(e)}")
+            # Do NOT attempt any fallback that touches UI directly
+    
+    def start_queue_processing(self):
+        """Start processing the update queue safely from main thread"""
+        print(f"🔄 Starting queue processing timer...")
+        self.process_queue()
+    
+    def process_queue(self):
+        """Process pending updates from the queue (main thread only)"""
+        try:
+            # Process all pending progress updates
+            while True:
+                try:
+                    update_data = self.update_queue.get_nowait()
+                    phase, progress, message = update_data
+                    print(f"📥 Processing queued update: {phase}, {progress:.1f}%")
+                    self._safe_update_ui_progress(phase, progress, message)
+                except queue.Empty:
+                    break
+            
+            # Process completion updates
+            try:
+                completion_data = self.completion_queue.get_nowait()
+                success, result, error = completion_data
+                print(f"📥 Processing queued completion: success={success}")
+                self._handle_completion(success, result, error)
+            except queue.Empty:
+                pass
+                
+        except Exception as e:
+            print(f"❌ Error processing queue: {str(e)}")
+        
+        # Schedule next queue check (every 100ms)
+        if not self.is_cancelled:
+            self.after(100, self.process_queue)
+    
+    def _safe_update_ui_progress(self, phase: str, progress: float, message: str):
+        """THREAD-SAFE UI update method - ONLY call from main thread"""
+        print(f"🎨 Dialog SAFELY updating UI: phase={phase}, progress={progress:.1f}%")
+        
+        if self.is_cancelled:
+            print(f"⚠️ Dialog ignoring UI update - cancelled")
+            return
+        
+        try:
+            # Check that widgets still exist before updating
+            if not hasattr(self, 'phase_label') or not hasattr(self, 'progress_bar'):
+                print(f"⚠️ Dialog widgets not available for update")
+                return
+            
+            # Update phase
+            phase_text = PROGRESS_PHASES.get(phase, phase.replace("_", " ").title())
+            self.phase_label.configure(text=phase_text)
+            print(f"🎨 Phase label updated to: {phase_text}")
+            
+            # Update progress bar CAREFULLY
+            progress_fraction = max(0.0, min(1.0, progress / 100.0))  # Clamp between 0 and 1
+            self.progress_bar.set(progress_fraction)
+            print(f"🎨 Progress bar set to: {progress_fraction:.2f}")
+            
+            # Update percentage
+            self.progress_label.configure(text=f"{progress:.0f}%")
+            print(f"🎨 Progress percentage updated to: {progress:.0f}%")
+            
+            # Update status message
+            if message:
+                self.status_label.configure(text=message)
+                print(f"🎨 Status message updated to: {message}")
+            
+            # Force UI refresh (this is safe on main thread)
+            self.update_idletasks()
+            print(f"🎨 UI refresh completed safely")
+            
+            # Special handling for completion
+            if phase == "complete":
+                print(f"🎯 Dialog detected completion phase")
+                # Don't call on_analysis_complete directly, let completion_queue handle it
+                
+        except Exception as e:
+            print(f"❌ CRITICAL: Error in safe UI update: {str(e)}")
+            import traceback
+            print(f"❌ Safe UI update traceback: {traceback.format_exc()}")
     
     def _update_ui_progress(self, phase: str, progress: float, message: str):
         """Update UI elements with progress (runs on main thread)"""
+        print(f"🎨 Dialog updating UI: phase={phase}, progress={progress:.1f}%")
+        
         if self.is_cancelled:
+            print(f"⚠️ Dialog ignoring UI update - cancelled")
             return
         
-        # Update phase
-        phase_text = PROGRESS_PHASES.get(phase, phase.replace("_", " ").title())
-        self.phase_label.configure(text=phase_text)
-        
-        # Update progress bar
-        progress_fraction = progress / 100.0
-        self.progress_bar.set(progress_fraction)
-        
-        # Update percentage
-        self.progress_label.configure(text=f"{progress:.0f}%")
-        
-        # Update status message
-        if message:
-            self.status_label.configure(text=message)
-        
-        # Special handling for completion
-        if phase == "complete":
-            self.on_analysis_complete()
+        try:
+            # Debug: Check if widgets exist
+            print(f"🎨 Checking widgets: phase_label={hasattr(self, 'phase_label')}, progress_bar={hasattr(self, 'progress_bar')}")
+            
+            # Update phase
+            phase_text = PROGRESS_PHASES.get(phase, phase.replace("_", " ").title())
+            if hasattr(self, 'phase_label'):
+                old_text = self.phase_label.cget("text")
+                self.phase_label.configure(text=phase_text)
+                new_text = self.phase_label.cget("text")
+                print(f"🎨 Phase label: '{old_text}' -> '{new_text}'")
+            
+            # Update progress bar
+            progress_fraction = progress / 100.0
+            if hasattr(self, 'progress_bar'):
+                old_progress = self.progress_bar.get()
+                self.progress_bar.set(progress_fraction)
+                new_progress = self.progress_bar.get()
+                print(f"🎨 Progress bar: {old_progress:.2f} -> {new_progress:.2f}")
+            
+            # Update percentage
+            if hasattr(self, 'progress_label'):
+                old_percent = self.progress_label.cget("text")
+                new_percent = f"{progress:.0f}%"
+                self.progress_label.configure(text=new_percent)
+                print(f"🎨 Progress label: '{old_percent}' -> '{new_percent}'")
+            
+            # Update status message
+            if message and hasattr(self, 'status_label'):
+                old_status = self.status_label.cget("text")
+                self.status_label.configure(text=message)
+                new_status = self.status_label.cget("text")
+                print(f"🎨 Status message: '{old_status}' -> '{new_status}'")
+            
+            # Force multiple types of UI refresh
+            print(f"🎨 Forcing UI refresh...")
+            self.update_idletasks()  # Process pending idle tasks
+            self.update()  # Process all pending events
+            print(f"🎨 UI refresh completed")
+            
+            # Check if values actually changed in UI
+            if hasattr(self, 'progress_bar'):
+                actual_progress = self.progress_bar.get()
+                print(f"🎨 Actual progress bar value after update: {actual_progress:.2f}")
+            
+            # Special handling for completion
+            if phase == "complete":
+                print(f"🎯 Dialog detected completion phase, triggering analysis complete")
+                self.on_analysis_complete()
+                
+        except Exception as e:
+            print(f"❌ Error updating UI: {str(e)}")
+            import traceback
+            print(f"❌ UI update traceback: {traceback.format_exc()}")
     
     def on_analysis_complete(self):
         """Handle successful completion of analysis"""
@@ -233,24 +406,38 @@ class LLMProgressDialog(ctk.CTkToplevel):
             self.on_close()
     
     def on_processing_complete(self, success: bool, result: Optional[Dict], error: Optional[str]):
-        """Handle completion of processing"""
+        """Handle completion of processing - THREAD SAFE"""
+        print(f"🎯 Dialog received processing completion: success={success}, has_result={result is not None}")
+        
         if self.is_cancelled:
+            print(f"⚠️ Dialog was cancelled, ignoring completion")
             return
         
-        # Schedule UI update on main thread
-        self.after(0, self._handle_completion, success, result, error)
+        # Use thread-safe queue for completion
+        print(f"🎯 Dialog queuing completion safely...")
+        try:
+            self.completion_queue.put((success, result, error))
+            print(f"🎯 Dialog completion queued successfully")
+        except Exception as e:
+            print(f"❌ Dialog error queuing completion: {str(e)}")
     
     def _handle_completion(self, success: bool, result: Optional[Dict], error: Optional[str]):
         """Handle completion on main thread"""
+        print(f"🎯 Dialog handling completion on main thread: success={success}")
+        
         if self.is_cancelled:
+            print(f"⚠️ Dialog was cancelled, ignoring completion")
             return
         
         if success and result:
-            # Store result and let the progress complete naturally
+            # Store result and trigger completion
+            print(f"✅ Dialog storing result and triggering completion")
             self.result = result
+            self.on_analysis_complete()  # Trigger completion immediately
         else:
             # Show error
             error_msg = error or "Unknown error occurred"
+            print(f"❌ Dialog showing error: {error_msg}")
             self.show_error(error_msg)
     
     def show_error(self, error_message: str):
