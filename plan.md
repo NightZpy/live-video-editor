@@ -146,6 +146,7 @@ python-dotenv==1.0.0
 - Implement play state management (playing/paused/stopped)
 - Add time display showing current position and cut duration
 - Keyboard shortcuts for space bar play/pause
+- Real video playback implementation (thread-safe streaming)
 
 ##### 3.5.3 Interactive Timeline Enhancement
 - Replace static timeline markers with interactive Canvas-based timeline
@@ -326,7 +327,12 @@ hh:mm:ss - hh:mm:ss - title - description
 - [DONE] Basic cuts list display
 - [ ] Basic video preview with cut playback
   - [DONE] 3.5.1 Video Player Backend Integration
-  - [DONE] 3.5.2 Playback Controls Implementation
+  - [PARTIAL] 3.5.2 Playback Controls Implementation
+    - [DONE] UI Controls (Play/Pause/Stop buttons)
+    - [DONE] Play state management
+    - [DONE] Time display
+    - [DONE] Keyboard shortcuts
+    - [ ] Real video playback implementation (thread-safe streaming)
   - [ ] 3.5.3 Interactive Timeline Enhancement
   - [ ] 3.5.4 Cut-Specific Playback Logic
   - [ ] 3.5.5 UI Integration and Events

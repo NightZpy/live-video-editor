@@ -6,8 +6,9 @@ Main Editor - Video Preview and Controls Panel
 import customtkinter as ctk
 import tkinter as tk
 from typing import Optional
+import cv2
+from PIL import Image, ImageTk
 from ..styles.theme import get_frame_style, get_text_style, get_button_style, COLORS, SPACING
-from ...utils.video_player import VideoPlayerManager, cv2_frame_to_tkinter
 
 class VideoPreviewComponent(ctk.CTkFrame):
     def __init__(self, parent, **kwargs):
@@ -24,15 +25,14 @@ class VideoPreviewComponent(ctk.CTkFrame):
         self.video_path: Optional[str] = None
         self.video_info: Optional[dict] = None
         
-        # Video player manager
-        self.video_player = VideoPlayerManager()
-        
         # UI state
         self.info_panel_expanded = False  # Default closed
         
-        # Video display components
+        # Video player widget (OpenCV-based for reliable playback)
+        self.video_capture: Optional[cv2.VideoCapture] = None
         self.video_canvas: Optional[tk.Canvas] = None
-        self.current_photo_image = None  # Keep reference to prevent garbage collection
+        self.current_frame: Optional[Image.Image] = None
+        self.current_photo_image: Optional[ImageTk.PhotoImage] = None
         
         # Setup UI
         self.setup_ui()
@@ -61,7 +61,7 @@ class VideoPreviewComponent(ctk.CTkFrame):
         self.create_cut_info()
     
     def create_video_preview(self):
-        """Create video preview area with Canvas for video display"""
+        """Create video preview area with OpenCV and Canvas"""
         preview_frame_style = get_frame_style("card")
         preview_frame = ctk.CTkFrame(self, height=300, **preview_frame_style)
         preview_frame.grid(row=1, column=0, sticky="ew", padx=SPACING["md"], pady=SPACING["md"])
@@ -69,25 +69,29 @@ class VideoPreviewComponent(ctk.CTkFrame):
         preview_frame.grid_rowconfigure(0, weight=1)
         preview_frame.grid_propagate(False)
         
-        # Video canvas for OpenCV frame display
+        # Create Canvas for video display
         self.video_canvas = tk.Canvas(
             preview_frame,
-            bg=COLORS["input_bg"],
+            bg="#2B2B2B",  # Dark background
             highlightthickness=0
         )
         self.video_canvas.grid(row=0, column=0, sticky="nsew", padx=SPACING["md"], pady=SPACING["md"])
         
-        # Placeholder text (shown when no video is loaded)
-        self.placeholder_text_id = self.video_canvas.create_text(
-            150, 120,  # Center position (will be updated on resize)
-            text="Video Preview\n(Select a cut to view)",
-            fill=COLORS["text_secondary"],
-            font=("Segoe UI", 14),
-            justify=tk.CENTER
-        )
+        # Show initial placeholder
+        self.show_placeholder()
         
-        # Bind canvas resize event to center content
+        # Bind canvas resize event
         self.video_canvas.bind("<Configure>", self.on_canvas_resize)
+    
+    def on_canvas_resize(self, event):
+        """Handle canvas resize events to maintain video aspect ratio"""
+        if self.current_frame and self.video_canvas:
+            self.display_frame(self.current_frame)
+    
+    def setup_video_callbacks(self):
+        """Setup callbacks for video player events"""
+        # OpenCV doesn't need specific callbacks, we handle them manually
+        pass
     
     def create_playback_controls(self):
         """Create playback controls panel with Play/Pause/Stop buttons and time display"""
@@ -382,11 +386,9 @@ class VideoPreviewComponent(ctk.CTkFrame):
     
     def setup_video_callbacks(self):
         """Setup callbacks for video player events"""
-        self.video_player.set_callbacks(
-            frame_callback=self.on_video_frame,
-            time_callback=self.on_time_update,
-            end_callback=self.on_playback_end
-        )
+        # TkinterVideo handles callbacks internally
+        # We'll monitor playback status through our own methods
+        pass
     
     def setup_keyboard_shortcuts(self):
         """Setup keyboard shortcuts for playback control"""
@@ -399,18 +401,11 @@ class VideoPreviewComponent(ctk.CTkFrame):
         self.toggle_play_pause()
         return "break"  # Prevent the event from propagating
     
-    def on_canvas_resize(self, event):
-        """Handle canvas resize to center placeholder text"""
-        if hasattr(self, 'placeholder_text_id') and self.video_canvas:
-            canvas_width = event.width
-            canvas_height = event.height
-            self.video_canvas.coords(self.placeholder_text_id, canvas_width//2, canvas_height//2)
-    
     # === Playback Control Methods ===
     
     def toggle_play_pause(self):
         """Toggle between play and pause"""
-        if not self.video_player.is_loaded or not self.selected_cut:
+        if not self.video_capture or not self.selected_cut:
             print("⚠️ No video or cut selected for playback")
             return
         
@@ -421,56 +416,113 @@ class VideoPreviewComponent(ctk.CTkFrame):
     
     def start_playback(self):
         """Start video playback from current position"""
-        if not self.video_player.is_loaded or not self.selected_cut:
+        if not self.video_capture or not self.selected_cut:
             return
         
-        # For now, just show a message instead of actual playback to avoid bus error
-        # This will be properly implemented in a future iteration
-        print(f"▶️ Playback requested for cut: {self.selected_cut.get('title', 'Unknown')}")
-        print("⚠️ Full playback functionality will be implemented in next iteration")
-        
-        # Update button state
+        # Start playback using OpenCV timer
         self.is_playing = True
         self.is_paused = False
+        
+        # Update button text
         self.play_pause_btn.configure(text="⏸️ Pause")
         
-        # Simulate playback by just updating the button state
-        # TODO: Implement actual video playback without threading issues
+        # Start monitoring playback to auto-stop at cut end
+        self.start_cut_monitoring()
+        
+        # Start the playback loop
+        self.play_frame()
+        
+        print(f"▶️ Started playback for cut: {self.selected_cut.get('title', 'Unknown')}")
     
     def pause_playback(self):
         """Pause video playback"""
-        if not self.video_player.is_loaded:
+        if not self.video_capture:
             return
         
-        # For now, just update button state to avoid bus error
+        # Pause playback by stopping the timer
         self.is_playing = False
         self.is_paused = True
+        
+        # Stop monitoring
+        self.stop_cut_monitoring()
         
         # Update button text
         self.play_pause_btn.configure(text="▶️ Play")
         
-        print("⏸️ Playback paused (simulation mode)")
+        print("⏸️ Playback paused")
     
     def stop_playback(self):
         """Stop video playback and return to cut start"""
-        if not self.video_player.is_loaded or not self.selected_cut:
+        if not self.video_capture or not self.selected_cut:
             return
         
-        # Reset playback state
+        # Stop playback
         self.is_playing = False
         self.is_paused = False
         
-        # Return to start of cut (this is safe - no threading)
-        start_time = self.parse_time_to_seconds(self.selected_cut.get("start_time", "00:00:00"))
-        self.video_player.seek_to_time(start_time)
+        # Stop monitoring
+        self.stop_cut_monitoring()
         
-        # Show the frame at start position
-        self.show_current_frame()
+        # Return to start of cut
+        start_time = self.parse_time_to_seconds(self.selected_cut.get("start_time", "00:00:00"))
+        start_frame = int(start_time * self.video_capture.get(cv2.CAP_PROP_FPS))
+        self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        
+        # Show the first frame of the cut
+        ret, frame = self.video_capture.read()
+        if ret:
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frame_image = Image.fromarray(frame_rgb)
+            self.display_frame(frame_image)
+            # Reset to the start frame position
+            self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
         
         # Update button text
         self.play_pause_btn.configure(text="▶️ Play")
         
         print(f"⏹️ Playback stopped, returned to start of cut")
+    
+    def start_cut_monitoring(self):
+        """Start monitoring playback to auto-stop at cut end"""
+        if not self.selected_cut:
+            return
+        
+        # Schedule periodic checks to see if we've reached the cut end
+        self.check_cut_end()
+    
+    def stop_cut_monitoring(self):
+        """Stop monitoring cut playback"""
+        # Cancel any scheduled checks
+        if hasattr(self, '_monitoring_after_id'):
+            self.after_cancel(self._monitoring_after_id)
+    
+    def check_cut_end(self):
+        """Check if playback has reached the end of the current cut"""
+        if not self.is_playing or not self.selected_cut or not self.video_capture:
+            return
+        
+        try:
+            # Get current position from OpenCV
+            current_time = self.video_capture.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
+            end_time = self.parse_time_to_seconds(self.selected_cut.get("end_time", "00:00:00"))
+            
+            if current_time >= end_time:
+                # Auto-stop when reaching cut end
+                self.stop_playback()
+                print(f"🏁 Cut playback ended at {end_time:.1f}s")
+            else:
+                # Continue monitoring
+                self._monitoring_after_id = self.after(100, self.check_cut_end)  # Check every 100ms
+                
+                # Update time display
+                start_time = self.parse_time_to_seconds(self.selected_cut.get("start_time", "00:00:00"))
+                cut_current_time = current_time - start_time
+                cut_duration = end_time - start_time
+                self.update_time_display(cut_current_time, cut_duration)
+        except Exception as e:
+            print(f"Error monitoring cut end: {e}")
+            # Continue monitoring despite error
+            self._monitoring_after_id = self.after(100, self.check_cut_end)
     
     def set_controls_enabled(self, enabled: bool):
         """Enable or disable playback controls"""
@@ -503,17 +555,18 @@ class VideoPreviewComponent(ctk.CTkFrame):
         self.video_path = video_path
         self.video_info = video_info
         
-        # Load video in video player
-        success = self.video_player.load_video(video_path)
-        
-        if success:
+        try:
+            # Load video in OpenCV
+            if self.video_capture:
+                self.video_capture.release()
+            
+            self.video_capture = cv2.VideoCapture(video_path)
+            if not self.video_capture.isOpened():
+                raise Exception("Could not open video file")
+            
             print(f"✅ Video loaded successfully: {video_path}")
-            # Hide placeholder text
-            if hasattr(self, 'placeholder_text_id') and self.video_canvas:
-                self.video_canvas.itemconfig(self.placeholder_text_id, state='hidden')
-        else:
-            print(f"❌ Failed to load video: {video_path}")
-            self.show_placeholder("Failed to load video")
+        except Exception as e:
+            print(f"❌ Failed to load video: {video_path} - {e}")
     
     def load_cut_preview(self, cut_data: dict):
         """
@@ -522,60 +575,48 @@ class VideoPreviewComponent(ctk.CTkFrame):
         Args:
             cut_data: Cut information with start_time, end_time, etc.
         """
-        if not self.video_player.is_loaded:
-            print("⚠️ No video loaded for preview")
+        if not self.video_capture:
+            print("⚠️ Video not loaded for cut preview")
             return
         
         # Store selected cut data
         self.selected_cut = cut_data
         
-        # Parse times (assuming they're in "HH:MM:SS" format)
-        start_time = self.parse_time_to_seconds(cut_data.get("start_time", "00:00:00"))
-        end_time = self.parse_time_to_seconds(cut_data.get("end_time", "00:00:00"))
-        
-        # Set cut boundaries
-        self.video_player.set_cut_boundaries(start_time, end_time)
-        
-        # Seek to start of cut and show preview frame
-        self.video_player.seek_to_time(start_time)
-        
-        # Force display of current frame
-        self.show_current_frame()
-        
-        # Enable playback controls now that we have a cut selected
-        self.set_controls_enabled(True)
-        
-        # Update time display
-        cut_duration = end_time - start_time
-        self.update_time_display(0, cut_duration)  # Start at 0 relative to cut
-        
-        # Reset playback state
-        self.is_playing = False
-        self.is_paused = False
-        self.play_pause_btn.configure(text="▶️ Play")
-        
-        print(f"📺 Cut preview loaded: {cut_data.get('title', 'Unknown')} ({start_time:.1f}s - {end_time:.1f}s)")
-    
-    def show_current_frame(self):
-        """
-        Force display of current video frame
-        """
-        if not self.video_player.is_loaded:
-            return
-        
-        # Get current frame
-        frame_result = self.video_player.get_current_frame()
-        if frame_result:
-            ret, frame = frame_result
+        try:
+            # Parse times (assuming they're in "HH:MM:SS" format)
+            start_time = self.parse_time_to_seconds(cut_data.get("start_time", "00:00:00"))
+            end_time = self.parse_time_to_seconds(cut_data.get("end_time", "00:00:00"))
+            
+            # Seek to start of cut - this will show the frame at that position
+            start_frame = int(start_time * self.video_capture.get(cv2.CAP_PROP_FPS))
+            self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+            
+            # Read and display the first frame of the cut
+            ret, frame = self.video_capture.read()
             if ret:
-                current_time = self.video_player.current_time
-                self.on_video_frame(frame, current_time)
-                print(f"🖼️ Showing frame at time: {current_time:.1f}s")
-            else:
-                print("❌ Failed to get current frame")
-        else:
-            print("❌ No frame available")
-
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frame_image = Image.fromarray(frame_rgb)
+                self.display_frame(frame_image)
+                # Reset to the start frame position for playback
+                self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+            
+            # Enable playback controls now that we have a cut selected
+            self.set_controls_enabled(True)
+            
+            # Update time display
+            cut_duration = end_time - start_time
+            self.update_time_display(0, cut_duration)  # Start at 0 relative to cut
+            
+            # Reset playback state
+            self.is_playing = False
+            self.is_paused = False
+            self.play_pause_btn.configure(text="▶️ Play")
+            
+            print(f"📺 Cut preview loaded: {cut_data.get('title', 'Unknown')} ({start_time:.1f}s - {end_time:.1f}s)")
+            
+        except Exception as e:
+            print(f"❌ Error loading cut preview: {e}")
+    
     def parse_time_to_seconds(self, time_str: str) -> float:
         """
         Parse time string (HH:MM:SS) to seconds
@@ -598,47 +639,6 @@ class VideoPreviewComponent(ctk.CTkFrame):
                 return float(parts[0])
         except (ValueError, IndexError):
             return 0.0
-    
-    def on_video_frame(self, frame, time_seconds: float):
-        """
-        Callback for new video frame
-        
-        Args:
-            frame: OpenCV frame
-            time_seconds: Current time in seconds
-        """
-        if not self.video_canvas:
-            return
-        
-        try:
-            # Get canvas size
-            canvas_width = self.video_canvas.winfo_width()
-            canvas_height = self.video_canvas.winfo_height()
-            
-            if canvas_width <= 1 or canvas_height <= 1:
-                return  # Canvas not ready
-            
-            # Convert frame to tkinter format and resize
-            tk_image = cv2_frame_to_tkinter(frame, (canvas_width-20, canvas_height-20))
-            
-            if tk_image is None:
-                print("❌ Failed to convert frame to tkinter format")
-                return
-            
-            # Keep reference to prevent garbage collection
-            self.current_photo_image = tk_image
-            
-            # Clear canvas and display frame
-            self.video_canvas.delete("video_frame")
-            
-            image_id = self.video_canvas.create_image(
-                canvas_width//2, canvas_height//2,
-                image=tk_image,
-                tags="video_frame"
-            )
-            
-        except Exception as e:
-            print(f"Error displaying video frame: {e}")
     
     def on_time_update(self, time_seconds: float):
         """
@@ -667,10 +667,19 @@ class VideoPreviewComponent(ctk.CTkFrame):
         self.play_pause_btn.configure(text="▶️ Play")
         
         # Return to start of cut
-        if self.selected_cut:
+        if self.selected_cut and self.video_capture:
             start_time = self.parse_time_to_seconds(self.selected_cut.get("start_time", "00:00:00"))
-            self.video_player.seek_to_time(start_time)
-            self.show_current_frame()
+            start_frame = int(start_time * self.video_capture.get(cv2.CAP_PROP_FPS))
+            self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+            
+            # Show the first frame
+            ret, frame = self.video_capture.read()
+            if ret:
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frame_image = Image.fromarray(frame_rgb)
+                self.display_frame(frame_image)
+                # Reset to the start frame position
+                self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
             
             # Reset time display
             end_time = self.parse_time_to_seconds(self.selected_cut.get("end_time", "00:00:00"))
@@ -698,13 +707,15 @@ class VideoPreviewComponent(ctk.CTkFrame):
         else:
             canvas_width = self.video_canvas.winfo_width()
             canvas_height = self.video_canvas.winfo_height()
-            self.placeholder_text_id = self.video_canvas.create_text(
-                canvas_width//2, canvas_height//2,
-                text=message,
-                fill=COLORS["text_secondary"],
-                font=("Segoe UI", 14),
-                justify=tk.CENTER
-            )
+            
+            if canvas_width > 1 and canvas_height > 1:
+                self.placeholder_text_id = self.video_canvas.create_text(
+                    canvas_width//2, canvas_height//2,
+                    text=message,
+                    fill=COLORS["text_secondary"],
+                    font=("Segoe UI", 14),
+                    justify=tk.CENTER
+                )
     
     def update_cut_info(self, cut_data):
         """Update the display with selected cut information and load cut preview"""
@@ -723,12 +734,16 @@ class VideoPreviewComponent(ctk.CTkFrame):
             self.desc_entry.insert(0, cut_data.get("description", ""))
             
             # Load cut preview if video is available
-            if self.video_player.is_loaded:
+            if self.video_capture and self.video_capture.isOpened():
                 self.load_cut_preview(cut_data)
     
     def release_video(self):
         """Release video resources"""
-        self.video_player.release()
+        if self.video_capture:
+            try:
+                self.video_capture.release()
+            except:
+                pass
         self.current_photo_image = None
         self.show_placeholder()
 
@@ -770,3 +785,96 @@ class VideoPreviewComponent(ctk.CTkFrame):
             main_window.reset_to_video_loading()
         else:
             print("⚠️ Main window doesn't have reset_to_video_loading method")
+            print("   This will be implemented when the main window is updated")
+    
+    def play_frame(self):
+        """Play a single frame and schedule the next one"""
+        if not self.is_playing or not self.video_capture or not self.selected_cut:
+            return
+        
+        try:
+            # Get current frame
+            ret, frame = self.video_capture.read()
+            if ret:
+                # Convert frame from BGR to RGB
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frame_image = Image.fromarray(frame_rgb)
+                
+                # Display the frame
+                self.display_frame(frame_image)
+                
+                # Get current position
+                current_pos = self.video_capture.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
+                end_time = self.parse_time_to_seconds(self.selected_cut.get("end_time", "00:00:00"))
+                
+                # Check if we've reached the end of the cut
+                if current_pos >= end_time:
+                    self.stop_playback()
+                    return
+                
+                # Update time display
+                start_time = self.parse_time_to_seconds(self.selected_cut.get("start_time", "00:00:00"))
+                cut_current_time = current_pos - start_time
+                cut_duration = end_time - start_time
+                self.update_time_display(cut_current_time, cut_duration)
+                
+                # Schedule next frame (approximately 30 FPS)
+                self.after(33, self.play_frame)
+            else:
+                # End of video reached
+                self.stop_playback()
+        except Exception as e:
+            print(f"Error playing frame: {e}")
+            self.stop_playback()
+    
+    def display_frame(self, frame_image):
+        """Display a frame in the canvas"""
+        if not self.video_canvas or not frame_image:
+            return
+        
+        try:
+            # Get canvas dimensions
+            canvas_width = self.video_canvas.winfo_width()
+            canvas_height = self.video_canvas.winfo_height()
+            
+            if canvas_width <= 1 or canvas_height <= 1:
+                # Canvas not ready yet
+                return
+            
+            # Calculate scaling to fit canvas while maintaining aspect ratio
+            img_width, img_height = frame_image.size
+            
+            # Calculate scale factors
+            scale_x = canvas_width / img_width
+            scale_y = canvas_height / img_height
+            scale = min(scale_x, scale_y)
+            
+            # Calculate new dimensions
+            new_width = int(img_width * scale)
+            new_height = int(img_height * scale)
+            
+            # Resize image
+            resized_image = frame_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            
+            # Create PhotoImage
+            self.current_photo_image = ImageTk.PhotoImage(resized_image)
+            
+            # Clear canvas and display image
+            self.video_canvas.delete("video_frame")
+            
+            # Center the image on canvas
+            x = (canvas_width - new_width) // 2
+            y = (canvas_height - new_height) // 2
+            
+            self.video_canvas.create_image(
+                x, y, 
+                anchor="nw", 
+                image=self.current_photo_image, 
+                tags="video_frame"
+            )
+            
+            # Store current frame for resize events
+            self.current_frame = frame_image
+            
+        except Exception as e:
+            print(f"Error displaying frame: {e}")
