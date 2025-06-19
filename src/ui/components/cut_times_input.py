@@ -422,8 +422,10 @@ class CutTimesInputComponent(ctk.CTkFrame):
             
             # Pass the complete result to the callback (same format as manual/file input)
             if self.on_option_selected:
-                print(f"🎯 Calling on_option_selected callback with automatic_analysis")
+                print(f"🎯 Calling on_option_selected callback with automatic_analysis and complete data")
+                print(f"🎯 About to advance to main editor with {len(result.get('cuts', []))} cuts")
                 self.on_option_selected("automatic_analysis", result)
+                print(f"✅ on_option_selected callback completed - should advance to main editor")
             else:
                 print(f"⚠️ No on_option_selected callback set")
         else:

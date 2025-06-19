@@ -188,9 +188,16 @@ class MainWindow(ctk.CTk):
             else:
                 print("📄 File upload selected but no data provided")
         elif option == "automatic_analysis":
-            api_key = data.get('api_key', 'N/A') if data else 'N/A'
-            print(f"🤖 AI analysis selected with API key: {api_key}")
-            # TODO: Implement AI analysis in Phase 4
+            if data:
+                # AI analysis was successfully completed
+                self.loaded_cuts_data = data
+                print(f"🤖 AI analysis completed: {data.get('video_info', {}).get('total_cuts', 0)} cuts generated")
+                print(f"🤖 Moving to main editor with AI-generated cuts")
+                # Skip manual input and go directly to main editor
+                self.current_phase = "main_editor"
+                self.show_current_phase()
+            else:
+                print("🤖 AI analysis selected but no data provided")
     
     def on_manual_input_complete(self, action, data=None):
         """Handle manual input completion"""

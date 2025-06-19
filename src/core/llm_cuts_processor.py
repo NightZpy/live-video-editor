@@ -182,11 +182,20 @@ class LLMCutsProcessor:
                 self._cleanup_temp_file(audio_path)
                 raise Exception("Processing cancelled")
                 
+            # Validate and adjust cuts for quality
+            self._update_progress("analyzing_with_ai", 90.0, "Validating and optimizing cuts...")
+            validated_cuts = self._validate_and_adjust_cuts(cuts_array)
+            print(f"🔍 Validation completed. Final cuts: {len(validated_cuts)} segments")
+            
+            if self.is_cancelled:
+                self._cleanup_temp_file(audio_path)
+                raise Exception("Processing cancelled")
+                
             self._update_progress("analyzing_with_ai", 95.0, "AI analysis complete")
             
             # Phase 4: Build final JSON (95-100%)
             self._update_progress("finalizing", 95.0, "Building final cuts data...")
-            final_result = self._build_final_json(cuts_array, video_info)
+            final_result = self._build_final_json(validated_cuts, video_info)
             print(f"✅ Final result built: {final_result}")
             
             # Cleanup
@@ -407,51 +416,100 @@ TRANSCRIPT WITH TIMESTAMPS:
 {segments_text}
 
 INSTRUCTIONS:
-1. Identify complete thematic segments that make sense as standalone pieces
-2. Each segment should cover a complete topic or idea, regardless of duration
-3. Segments can be short (even 20-30 seconds) if the topic is brief and complete
-4. Segments can be long (several minutes) if the topic requires extended explanation
-5. Avoid cutting in the middle of explanations or important content
-6. Look for natural topic transitions, introductions, conclusions, or subject changes
-7. Create descriptive titles that clearly indicate what each segment covers
-8. Ensure each segment tells a complete story or covers a complete concept
+1. GRANULAR ANALYSIS: Analyze the transcript with maximum granularity to identify ALL possible natural cut points
+2. Detect EVERY thematic shift, no matter how small - including:
+   - Major topic changes (chapters/sections)
+   - Sub-topic transitions within larger themes
+   - Individual examples or case studies
+   - Specific tips or insights
+   - Q&A segments or different speakers
+   - Practical demonstrations
+   - Conceptual explanations vs. practical applications
+   - Introduction/body/conclusion of sub-topics
+3. DO NOT group related content into large blocks - identify each distinct concept separately
+4. MINIMUM DURATION RULE: Segments should be at least 30 seconds long UNLESS they contain exceptionally complete and highly valuable standalone content
+5. Short segments (under 30 seconds) are ONLY allowed when:
+   - The content is a complete, self-contained concept or tip
+   - The information is particularly valuable or insightful
+   - It represents a distinct, finished thought or instruction
+   - It would lose meaning if combined with adjacent content
+6. PRIORITIZE GRANULARITY: When in doubt between creating one large segment or multiple smaller ones, choose multiple smaller segments if each covers a distinct concept
+7. Avoid cutting in the middle of explanations, but DO cut between different explanations, examples, or concepts
+8. Look for natural micro-transitions like "Now let's talk about...", "Another example is...", "Here's a key point...", "Moving on to..."
+9. Each segment should be immediately useful and consumable as a standalone piece
+10. Create descriptive, specific titles that clearly indicate the exact content of each segment
 
 RESPONSE FORMAT (JSON Array only):
 [
   {{
     "id": 1,
-    "start": "00:00:05",
-    "end": "00:00:25",
-    "title": "Quick Introduction",
-    "description": "Brief welcome and overview of what will be covered",
-    "duration": "00:00:20"
+    "start": "00:00:00",
+    "end": "00:00:35",
+    "title": "Welcome and Introduction",
+    "description": "Opening greeting and brief overview of the session",
+    "duration": "00:00:35"
   }},
   {{
     "id": 2,
-    "start": "00:00:25", 
-    "end": "00:03:45",
-    "title": "Main Concept Explanation",
-    "description": "Detailed explanation of the core concept with examples",
-    "duration": "00:03:20"
+    "start": "00:00:35", 
+    "end": "00:01:20",
+    "title": "Main Topic Definition",
+    "description": "Clear definition and explanation of the primary concept",
+    "duration": "00:00:45"
   }},
   {{
     "id": 3,
-    "start": "00:03:45",
-    "end": "00:04:15", 
-    "title": "Quick Tip",
-    "description": "Short practical tip related to the main concept",
+    "start": "00:01:20",
+    "end": "00:02:15", 
+    "title": "First Practical Example",
+    "description": "Detailed walkthrough of first use case scenario",
+    "duration": "00:00:55"
+  }},
+  {{
+    "id": 4,
+    "start": "00:02:15",
+    "end": "00:02:45", 
+    "title": "Critical Warning",
+    "description": "Important cautionary advice to avoid common mistakes (SHORT SEGMENT JUSTIFIED)",
     "duration": "00:00:30"
+  }},
+  {{
+    "id": 5,
+    "start": "00:02:45",
+    "end": "00:04:10", 
+    "title": "Second Practical Example",
+    "description": "Different scenario demonstrating alternative approach",
+    "duration": "00:01:25"
+  }},
+  {{
+    "id": 6,
+    "start": "00:04:10",
+    "end": "00:04:55", 
+    "title": "Pro Tip for Advanced Users",
+    "description": "Advanced technique for experienced practitioners",
+    "duration": "00:00:45"
+  }},
+  {{
+    "id": 7,
+    "start": "00:04:55",
+    "end": "00:05:30", 
+    "title": "Summary and Next Steps",
+    "description": "Recap of key points and actionable next steps",
+    "duration": "00:00:35"
   }}
 ]
 
 IMPORTANT: 
-- Focus on thematic completeness rather than duration constraints
-- Let content determine segment boundaries naturally
+- MAXIMUM GRANULARITY: Create as many meaningful segments as possible - don't group related content unnecessarily
+- Think like a viewer who wants to jump to specific concepts, examples, or tips quickly
+- Each segment should represent a distinct piece of value that someone might want to reference independently
+- CRITICAL: Segments under 30 seconds must contain exceptionally valuable, complete standalone content
+- Better to have many precise, focused segments than fewer broad ones
 - Respond ONLY with the JSON array, no additional text
 - Ensure timestamps are sequential and don't overlap
 - Calculate duration correctly for each segment
 - Use HH:MM:SS format for all times
-- Generate as many or as few segments as the content naturally suggests
+- Aim for comprehensive coverage - every distinct concept should have its own segment
 """
         
         return prompt
@@ -524,6 +582,100 @@ IMPORTANT:
                 os.unlink(file_path)
         except Exception:
             pass  # Ignore cleanup errors
+    
+    def _validate_and_adjust_cuts(self, cuts_array: List[Dict]) -> List[Dict]:
+        """
+        Validate cuts and adjust short segments that don't meet quality criteria
+        
+        Args:
+            cuts_array: Array of cuts from LLM
+            
+        Returns:
+            Validated and potentially adjusted cuts array
+        """
+        print(f"🔍 Validating cuts for minimum duration requirements...")
+        
+        validated_cuts = []
+        short_segments_keywords = [
+            'tip', 'insight', 'key', 'important', 'critical', 'essential', 
+            'pro tip', 'quick tip', 'takeaway', 'lesson', 'principle',
+            'rule', 'secret', 'hack', 'trick', 'warning', 'note'
+        ]
+        
+        i = 0
+        while i < len(cuts_array):
+            current_cut = cuts_array[i]
+            
+            # Calculate duration in seconds
+            start_seconds = self._timestamp_to_seconds(current_cut["start"])
+            end_seconds = self._timestamp_to_seconds(current_cut["end"])
+            duration_seconds = end_seconds - start_seconds
+            
+            print(f"🔍 Validating cut {i+1}: '{current_cut['title']}' - {duration_seconds:.1f} seconds")
+            
+            # Check if it's a short segment (< 30 seconds)
+            if duration_seconds < 30:
+                title_lower = current_cut.get("title", "").lower()
+                description_lower = current_cut.get("description", "").lower()
+                
+                # Check if it contains quality indicators
+                has_quality_indicators = any(
+                    keyword in title_lower or keyword in description_lower 
+                    for keyword in short_segments_keywords
+                )
+                
+                if has_quality_indicators:
+                    print(f"✅ Short segment approved: Contains quality indicators")
+                    validated_cuts.append(current_cut)
+                    i += 1
+                else:
+                    print(f"⚠️ Short segment needs merging: No quality indicators found")
+                    # Try to merge with next segment if possible
+                    if i + 1 < len(cuts_array):
+                        next_cut = cuts_array[i + 1]
+                        merged_cut = self._merge_cuts(current_cut, next_cut)
+                        print(f"🔗 Merged with next segment: '{merged_cut['title']}'")
+                        validated_cuts.append(merged_cut)
+                        i += 2  # Skip next cut as it's been merged
+                    else:
+                        # Last segment, keep it even if short
+                        print(f"📝 Keeping last segment even if short")
+                        validated_cuts.append(current_cut)
+                        i += 1
+            else:
+                # Segment is long enough, keep it
+                validated_cuts.append(current_cut)
+                i += 1
+        
+        print(f"✅ Validation complete: {len(cuts_array)} -> {len(validated_cuts)} segments")
+        return validated_cuts
+    
+    def _merge_cuts(self, cut1: Dict, cut2: Dict) -> Dict:
+        """
+        Merge two adjacent cuts into one
+        
+        Args:
+            cut1: First cut
+            cut2: Second cut
+            
+        Returns:
+            Merged cut
+        """
+        # Calculate new duration
+        start_seconds = self._timestamp_to_seconds(cut1["start"])
+        end_seconds = self._timestamp_to_seconds(cut2["end"])
+        duration_seconds = end_seconds - start_seconds
+        
+        merged_cut = {
+            "id": cut1["id"],
+            "start": cut1["start"],
+            "end": cut2["end"],
+            "title": f"{cut1['title']} + {cut2['title']}",
+            "description": f"{cut1['description']} Combined with: {cut2['description']}",
+            "duration": self._seconds_to_timestamp(duration_seconds)
+        }
+        
+        return merged_cut
 
 
 # Progress phases for UI
