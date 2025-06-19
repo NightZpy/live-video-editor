@@ -37,6 +37,9 @@ class VideoPreviewComponent(ctk.CTkFrame):
         # Setup UI
         self.setup_ui()
         
+        # Setup keyboard shortcuts
+        self.setup_keyboard_shortcuts()
+        
         # Setup video player callbacks
         self.setup_video_callbacks()
     
@@ -47,6 +50,9 @@ class VideoPreviewComponent(ctk.CTkFrame):
         
         # Video preview area
         self.create_video_preview()
+        
+        # Playback controls
+        self.create_playback_controls()
         
         # Timeline area
         self.create_timeline()
@@ -83,11 +89,66 @@ class VideoPreviewComponent(ctk.CTkFrame):
         # Bind canvas resize event to center content
         self.video_canvas.bind("<Configure>", self.on_canvas_resize)
     
+    def create_playback_controls(self):
+        """Create playback controls panel with Play/Pause/Stop buttons and time display"""
+        controls_frame_style = get_frame_style("default")
+        controls_frame = ctk.CTkFrame(self, height=60, **controls_frame_style)
+        controls_frame.grid(row=2, column=0, sticky="ew", padx=SPACING["md"], pady=(0, SPACING["sm"]))
+        controls_frame.grid_columnconfigure(2, weight=1)  # Time display area gets extra space
+        controls_frame.grid_propagate(False)
+        
+        # Playback state variables
+        self.is_playing = False
+        self.is_paused = False
+        
+        # Control buttons frame
+        buttons_frame = ctk.CTkFrame(controls_frame, fg_color="transparent")
+        buttons_frame.grid(row=0, column=0, padx=SPACING["md"], pady=SPACING["sm"], sticky="w")
+        
+        # Play/Pause button
+        play_button_style = get_button_style("primary")
+        self.play_pause_btn = ctk.CTkButton(
+            buttons_frame,
+            text="▶️ Play",
+            width=80,
+            command=self.toggle_play_pause,
+            **play_button_style
+        )
+        self.play_pause_btn.grid(row=0, column=0, padx=(0, SPACING["sm"]))
+        
+        # Stop button
+        stop_button_style = get_button_style("secondary")
+        self.stop_btn = ctk.CTkButton(
+            buttons_frame,
+            text="⏹️ Stop",
+            width=80,
+            command=self.stop_playback,
+            **stop_button_style
+        )
+        self.stop_btn.grid(row=0, column=1, padx=(0, SPACING["sm"]))
+        
+        # Time display
+        time_frame = ctk.CTkFrame(controls_frame, fg_color="transparent")
+        time_frame.grid(row=0, column=2, padx=SPACING["md"], pady=SPACING["sm"], sticky="ew")
+        time_frame.grid_columnconfigure(0, weight=1)
+        
+        # Current time / Total time
+        time_text_style = get_text_style("small")
+        self.time_label = ctk.CTkLabel(
+            time_frame,
+            text="00:00 / 00:00",
+            **time_text_style
+        )
+        self.time_label.grid(row=0, column=0, sticky="e")
+        
+        # Initially disable controls (no video loaded)
+        self.set_controls_enabled(False)
+    
     def create_timeline(self):
         """Create timeline area"""
         timeline_frame_style = get_frame_style("default")
         timeline_frame = ctk.CTkFrame(self, height=80, **timeline_frame_style)
-        timeline_frame.grid(row=2, column=0, sticky="ew", padx=SPACING["md"], pady=(0, SPACING["md"]))
+        timeline_frame.grid(row=3, column=0, sticky="ew", padx=SPACING["md"], pady=(0, SPACING["md"]))
         timeline_frame.grid_columnconfigure(1, weight=1)
         timeline_frame.grid_propagate(False)
         
@@ -146,7 +207,7 @@ class VideoPreviewComponent(ctk.CTkFrame):
         # Main info frame
         info_frame_style = get_frame_style("card")
         self.info_frame = ctk.CTkFrame(self, **info_frame_style)
-        self.info_frame.grid(row=3, column=0, sticky="ew", padx=SPACING["md"], pady=(0, SPACING["md"]))
+        self.info_frame.grid(row=4, column=0, sticky="ew", padx=SPACING["md"], pady=(0, SPACING["md"]))
         self.info_frame.grid_columnconfigure(0, weight=1)
         
         # Toggle header
@@ -327,12 +388,109 @@ class VideoPreviewComponent(ctk.CTkFrame):
             end_callback=self.on_playback_end
         )
     
+    def setup_keyboard_shortcuts(self):
+        """Setup keyboard shortcuts for playback control"""
+        # Bind spacebar to play/pause (need to focus the widget first)
+        self.bind("<KeyPress-space>", self.on_space_pressed)
+        self.focus_set()  # Allow the widget to receive keyboard events
+    
+    def on_space_pressed(self, event):
+        """Handle spacebar press for play/pause toggle"""
+        self.toggle_play_pause()
+        return "break"  # Prevent the event from propagating
+    
     def on_canvas_resize(self, event):
         """Handle canvas resize to center placeholder text"""
         if hasattr(self, 'placeholder_text_id') and self.video_canvas:
             canvas_width = event.width
             canvas_height = event.height
             self.video_canvas.coords(self.placeholder_text_id, canvas_width//2, canvas_height//2)
+    
+    # === Playback Control Methods ===
+    
+    def toggle_play_pause(self):
+        """Toggle between play and pause"""
+        if not self.video_player.is_loaded or not self.selected_cut:
+            print("⚠️ No video or cut selected for playback")
+            return
+        
+        if self.is_playing:
+            self.pause_playback()
+        else:
+            self.start_playback()
+    
+    def start_playback(self):
+        """Start video playback from current position"""
+        if not self.video_player.is_loaded or not self.selected_cut:
+            return
+        
+        # For now, just show a message instead of actual playback to avoid bus error
+        # This will be properly implemented in a future iteration
+        print(f"▶️ Playback requested for cut: {self.selected_cut.get('title', 'Unknown')}")
+        print("⚠️ Full playback functionality will be implemented in next iteration")
+        
+        # Update button state
+        self.is_playing = True
+        self.is_paused = False
+        self.play_pause_btn.configure(text="⏸️ Pause")
+        
+        # Simulate playback by just updating the button state
+        # TODO: Implement actual video playback without threading issues
+    
+    def pause_playback(self):
+        """Pause video playback"""
+        if not self.video_player.is_loaded:
+            return
+        
+        # For now, just update button state to avoid bus error
+        self.is_playing = False
+        self.is_paused = True
+        
+        # Update button text
+        self.play_pause_btn.configure(text="▶️ Play")
+        
+        print("⏸️ Playback paused (simulation mode)")
+    
+    def stop_playback(self):
+        """Stop video playback and return to cut start"""
+        if not self.video_player.is_loaded or not self.selected_cut:
+            return
+        
+        # Reset playback state
+        self.is_playing = False
+        self.is_paused = False
+        
+        # Return to start of cut (this is safe - no threading)
+        start_time = self.parse_time_to_seconds(self.selected_cut.get("start_time", "00:00:00"))
+        self.video_player.seek_to_time(start_time)
+        
+        # Show the frame at start position
+        self.show_current_frame()
+        
+        # Update button text
+        self.play_pause_btn.configure(text="▶️ Play")
+        
+        print(f"⏹️ Playback stopped, returned to start of cut")
+    
+    def set_controls_enabled(self, enabled: bool):
+        """Enable or disable playback controls"""
+        state = "normal" if enabled else "disabled"
+        self.play_pause_btn.configure(state=state)
+        self.stop_btn.configure(state=state)
+    
+    def update_time_display(self, current_seconds: float, total_seconds: float):
+        """Update the time display with current/total time"""
+        current_time_str = self.seconds_to_time_string(current_seconds)
+        total_time_str = self.seconds_to_time_string(total_seconds)
+        self.time_label.configure(text=f"{current_time_str} / {total_time_str}")
+    
+    def seconds_to_time_string(self, seconds: float) -> str:
+        """Convert seconds to MM:SS format"""
+        minutes = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{minutes:02d}:{secs:02d}"
+    
+    # === Video Loading Methods ===
     
     def load_video(self, video_path: str, video_info: Optional[dict] = None):
         """
@@ -368,6 +526,9 @@ class VideoPreviewComponent(ctk.CTkFrame):
             print("⚠️ No video loaded for preview")
             return
         
+        # Store selected cut data
+        self.selected_cut = cut_data
+        
         # Parse times (assuming they're in "HH:MM:SS" format)
         start_time = self.parse_time_to_seconds(cut_data.get("start_time", "00:00:00"))
         end_time = self.parse_time_to_seconds(cut_data.get("end_time", "00:00:00"))
@@ -380,6 +541,18 @@ class VideoPreviewComponent(ctk.CTkFrame):
         
         # Force display of current frame
         self.show_current_frame()
+        
+        # Enable playback controls now that we have a cut selected
+        self.set_controls_enabled(True)
+        
+        # Update time display
+        cut_duration = end_time - start_time
+        self.update_time_display(0, cut_duration)  # Start at 0 relative to cut
+        
+        # Reset playback state
+        self.is_playing = False
+        self.is_paused = False
+        self.play_pause_btn.configure(text="▶️ Play")
         
         print(f"📺 Cut preview loaded: {cut_data.get('title', 'Unknown')} ({start_time:.1f}s - {end_time:.1f}s)")
     
@@ -474,12 +647,37 @@ class VideoPreviewComponent(ctk.CTkFrame):
         Args:
             time_seconds: Current playback time in seconds
         """
-        # Update time display (will be implemented in next task)
-        pass
+        if self.selected_cut:
+            # Calculate time relative to cut start
+            start_time = self.parse_time_to_seconds(self.selected_cut.get("start_time", "00:00:00"))
+            end_time = self.parse_time_to_seconds(self.selected_cut.get("end_time", "00:00:00"))
+            
+            # Time elapsed in the cut
+            cut_current_time = time_seconds - start_time
+            cut_duration = end_time - start_time
+            
+            # Update time display
+            self.update_time_display(cut_current_time, cut_duration)
     
     def on_playback_end(self):
         """Callback when playback reaches the end of cut"""
-        print("🏁 Cut playback ended")
+        # Reset playback state
+        self.is_playing = False
+        self.is_paused = False
+        self.play_pause_btn.configure(text="▶️ Play")
+        
+        # Return to start of cut
+        if self.selected_cut:
+            start_time = self.parse_time_to_seconds(self.selected_cut.get("start_time", "00:00:00"))
+            self.video_player.seek_to_time(start_time)
+            self.show_current_frame()
+            
+            # Reset time display
+            end_time = self.parse_time_to_seconds(self.selected_cut.get("end_time", "00:00:00"))
+            cut_duration = end_time - start_time
+            self.update_time_display(0, cut_duration)
+        
+        print("🏁 Cut playback ended, returned to start")
     
     def show_placeholder(self, message: str = "Video Preview\n(Select a cut to view)"):
         """

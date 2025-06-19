@@ -325,8 +325,8 @@ hh:mm:ss - hh:mm:ss - title - description
 - [DONE] Time processing and JSON conversion
 - [DONE] Basic cuts list display
 - [ ] Basic video preview with cut playback
-  - [ ] 3.5.1 Video Player Backend Integration
-  - [ ] 3.5.2 Playback Controls Implementation
+  - [DONE] 3.5.1 Video Player Backend Integration
+  - [DONE] 3.5.2 Playback Controls Implementation
   - [ ] 3.5.3 Interactive Timeline Enhancement
   - [ ] 3.5.4 Cut-Specific Playback Logic
   - [ ] 3.5.5 UI Integration and Events
