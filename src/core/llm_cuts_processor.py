@@ -11,6 +11,8 @@ from typing import Dict, List, Optional, Callable
 import ffmpeg
 import openai
 from datetime import timedelta
+from .whisper_transcriber import WhisperTranscriber
+from ..utils.data_cache import DataCacheManager
 
 # Print version info for debugging
 print(f"🔍 OpenAI library version: {openai.__version__}")
@@ -67,6 +69,14 @@ class LLMCutsProcessor:
         self.current_phase = ""
         self.current_progress = 0.0
         
+        # Initialize Whisper transcriber
+        self.transcriber = WhisperTranscriber(self.openai_client)
+        print(f"🎙️ Whisper transcriber initialized")
+        
+        # Initialize data cache manager
+        self.cache_manager = DataCacheManager()
+        print(f"💾 Data cache manager initialized")
+        
     def set_progress_callback(self, callback: Callable):
         """Set callback function for progress updates"""
         print(f"📞 LLM processor setting progress callback: {callback}")
@@ -76,6 +86,10 @@ class LLMCutsProcessor:
         """Cancel the current processing operation"""
         print(f"⚠️ LLM processor cancelled")
         self.is_cancelled = True
+        
+        # Also cleanup transcriber resources
+        if hasattr(self, 'transcriber'):
+            self.transcriber.cleanup()
         
     def _update_progress(self, phase: str, progress: float, message: str = ""):
         """Update progress and call callback if set"""
@@ -112,7 +126,7 @@ class LLMCutsProcessor:
         def worker():
             try:
                 print(f"🔄 Worker thread started")
-                result = self.process_video(video_path, video_info)
+                result = self.process_video_sync_with_cache_check(video_path, video_info)
                 if not self.is_cancelled:
                     print(f"✅ Processing successful, calling completion callback")
                     completion_callback(True, result, None)
@@ -130,6 +144,187 @@ class LLMCutsProcessor:
         thread.start()
         print(f"🔄 Background thread started")
         
+    def process_video_with_cache_check(self, video_path: str, video_info: Dict, completion_callback: Callable):
+        """
+        Process video with intelligent cache checking
+        
+        Args:
+            video_path: Path to the video file
+            video_info: Video metadata
+            completion_callback: Function to call when processing is complete
+        """
+        print(f"🔄 Starting video processing with cache checking...")
+        
+        def worker():
+            try:
+                # Verificar si hay cuts completos en caché
+                if self.cache_manager.has_cuts_cache(video_path):
+                    print("🎯 Complete cuts cache found! Loading immediately...")
+                    try:
+                        cached_cuts = self.cache_manager.load_cuts(video_path)
+                        if not self.is_cancelled:
+                            completion_callback(True, cached_cuts, "Cuts loaded from cache")
+                            return
+                    except Exception as e:
+                        print(f"⚠️ Failed to load cuts cache: {e}")
+                        # Continuar con procesamiento normal
+                
+                # Verificar si hay transcripción en caché
+                if self.cache_manager.has_transcription_cache(video_path):
+                    print("📝 Transcription cache found! Skipping transcription...")
+                    self._process_with_cached_transcription(video_path, video_info, completion_callback)
+                    return
+                else:
+                    print("🔄 No cache found, processing from scratch...")
+                    result = self.process_video(video_path, video_info)
+                    if not self.is_cancelled:
+                        completion_callback(True, result, "Processing completed successfully")
+                        
+            except Exception as e:
+                print(f"❌ Error in cache-aware worker thread: {str(e)}")
+                import traceback
+                print(f"❌ Cache-aware worker thread traceback: {traceback.format_exc()}")
+                if not self.is_cancelled:
+                    completion_callback(False, None, str(e))
+        
+        # Start processing in background thread
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        
+    def _process_with_cached_transcription(self, video_path: str, video_info: Dict, completion_callback: Callable):
+        """Process video using cached transcription"""
+        try:
+            self._update_progress("loading_cache", 10.0, "Cargando transcripción desde caché...")
+            
+            # Cargar transcripción desde caché
+            transcription_result = self.cache_manager.load_transcription(video_path)
+            if not transcription_result:
+                raise Exception("Failed to load transcription from cache")
+            
+            cached_transcription, cached_video_info = transcription_result
+            
+            if self.is_cancelled:
+                raise Exception("Processing cancelled")
+            
+            self._update_progress("analyzing_with_ai", 30.0, "Analizando contenido con GPT-4...")
+            
+            # Saltar directamente al análisis LLM
+            cuts_array = self._analyze_with_llm(cached_transcription, cached_video_info)
+            
+            if self.is_cancelled:
+                raise Exception("Processing cancelled")
+            
+            self._update_progress("analyzing_with_ai", 80.0, "Validando y optimizando cortes...")
+            validated_cuts = self._validate_and_adjust_cuts(cuts_array)
+            
+            self._update_progress("finalizing", 90.0, "Construyendo resultado final...")
+            
+            # Asegurar que video_path esté en cached_video_info
+            cached_video_info_with_path = cached_video_info.copy()
+            cached_video_info_with_path['video_path'] = video_path
+            
+            final_result = self._build_final_json(validated_cuts, cached_video_info_with_path, video_path)
+            
+            self._update_progress("complete", 100.0, "¡Procesamiento completado!")
+            
+            if not self.is_cancelled:
+                completion_callback(True, final_result, "Processing completed successfully with cached transcription")
+            
+        except Exception as e:
+            print(f"❌ Error in cached processing: {str(e)}")
+            if not self.is_cancelled:
+                completion_callback(False, None, f"Error: {str(e)}")
+        
+    def process_video_sync_with_cache_check(self, video_path: str, video_info: Dict) -> Dict:
+        """
+        Synchronous video processing with intelligent cache checking
+        
+        Args:
+            video_path: Path to the video file
+            video_info: Video metadata
+            
+        Returns:
+            Complete cuts data in the expected format
+        """
+        print(f"🚀 Starting cache-aware LLM video processing...")
+        print(f"📁 Video path: {video_path}")
+        
+        # Verificar si hay cuts completos en caché
+        if self.cache_manager.has_cuts_cache(video_path):
+            print("🎯 Cuts cache found! Loading directly...")
+            try:
+                cached_cuts = self.cache_manager.load_cuts(video_path)
+                if cached_cuts and 'cuts' in cached_cuts:
+                    print(f"✅ Loaded {len(cached_cuts['cuts'])} cuts from cache")
+                    return cached_cuts
+            except Exception as e:
+                print(f"⚠️ Failed to load cuts cache: {e}")
+                # Continuar con procesamiento normal
+        
+        # Verificar si hay transcripción en caché
+        if self.cache_manager.has_transcription_cache(video_path):
+            print("📝 Transcription cache found! Skipping transcription...")
+            return self._process_with_cached_transcription_sync(video_path, video_info)
+        
+        # No cache found, proceso normal
+        print("🔄 No cache found, processing from scratch...")
+        return self.process_video(video_path, video_info)
+
+    def _process_with_cached_transcription_sync(self, video_path: str, video_info: Dict) -> Dict:
+        """
+        Synchronous processing using cached transcription
+        
+        Args:
+            video_path: Path to the video file
+            video_info: Video metadata
+            
+        Returns:
+            Complete cuts data
+        """
+        try:
+            # Cargar transcripción del caché
+            transcription_result = self.cache_manager.load_transcription(video_path)
+            if not transcription_result:
+                raise Exception("Failed to load cached transcription")
+            
+            cached_transcription, cached_video_info = transcription_result
+            
+            print(f"📂 Loaded cached transcription from cache")
+            print(f"📝 Cached text length: {len(cached_transcription.get('text', ''))}")
+            
+            # Update progress 
+            if self.progress_callback:
+                self.progress_callback("analyzing_with_ai", 70.0, "Analyzing content with GPT-4...")
+            
+            # Analizar con LLM usando transcripción cacheada
+            cuts_data = self._analyze_with_llm(cached_transcription, video_info)
+            
+            # Validar y optimizar
+            if self.progress_callback:
+                self.progress_callback("analyzing_with_ai", 90.0, "Validating and optimizing cuts...")
+            
+            optimized_cuts = self._validate_and_adjust_cuts(cuts_data)
+            
+            # Progress update
+            if self.progress_callback:
+                self.progress_callback("analyzing_with_ai", 95.0, "AI analysis complete")
+            
+            # Preparar resultado final
+            if self.progress_callback:
+                self.progress_callback("finalizing", 95.0, "Building final cuts data...")
+            
+            result = self._build_final_json(optimized_cuts, video_info, video_path)
+            
+            if self.progress_callback:
+                self.progress_callback("complete", 100.0, "Processing complete!")
+            
+            return result
+            
+        except Exception as e:
+            print(f"❌ Error in cached transcription processing: {e}")
+            # Fallback to normal processing
+            return self.process_video(video_path, video_info)
+        
     def process_video(self, video_path: str, video_info: Dict) -> Dict:
         """
         Main processing function - extracts audio, transcribes, and analyzes with LLM
@@ -144,6 +339,10 @@ class LLMCutsProcessor:
         print(f"🚀 Starting LLM video processing...")
         print(f"📁 Video path: {video_path}")
         print(f"📊 Video info: {video_info}")
+        
+        # Ensure video_path is in video_info for caching
+        video_info_with_path = video_info.copy()
+        video_info_with_path['video_path'] = video_path
         
         if self.is_cancelled:
             raise Exception("Processing cancelled")
@@ -162,7 +361,7 @@ class LLMCutsProcessor:
             
             # Phase 2: Generate transcription (30-70%)
             self._update_progress("generating_transcription", 30.0, "Generating transcription with Whisper...")
-            transcript = self._transcribe_audio(audio_path)
+            transcript = self._transcribe_audio(audio_path, video_info_with_path)
             print(f"📝 Transcription completed. Text length: {len(transcript.get('text', ''))}")
             print(f"📝 Full transcript: {transcript}")
             
@@ -174,7 +373,7 @@ class LLMCutsProcessor:
             
             # Phase 3: LLM Analysis (70-95%)
             self._update_progress("analyzing_with_ai", 70.0, "Analyzing content with GPT-4...")
-            cuts_array = self._analyze_with_llm(transcript, video_info)
+            cuts_array = self._analyze_with_llm(transcript, video_info_with_path)
             print(f"🤖 LLM analysis completed. Generated {len(cuts_array)} cuts")
             print(f"🤖 Generated cuts: {cuts_array}")
             
@@ -195,11 +394,14 @@ class LLMCutsProcessor:
             
             # Phase 4: Build final JSON (95-100%)
             self._update_progress("finalizing", 95.0, "Building final cuts data...")
-            final_result = self._build_final_json(validated_cuts, video_info)
+            final_result = self._build_final_json(validated_cuts, video_info_with_path, video_path)
             print(f"✅ Final result built: {final_result}")
             
             # Cleanup
             self._cleanup_temp_file(audio_path)
+            
+            # Cleanup transcriber resources
+            self.transcriber.cleanup()
             
             self._update_progress("complete", 100.0, "Processing complete!")
             print(f"🎉 LLM processing completed successfully!")
@@ -260,38 +462,45 @@ class LLMCutsProcessor:
             print(f"❌ Unexpected error in audio extraction: {str(e)}")
             raise
     
-    def _transcribe_audio(self, audio_path: str) -> Dict:
+    def _transcribe_audio(self, audio_path: str, video_info: Dict) -> Dict:
         """
-        Transcribe audio using OpenAI Whisper API
+        Transcribe audio using the smart Whisper transcriber with video metadata
+        Automatically chooses between API and local based on file size and optimizes model selection
         
         Args:
             audio_path: Path to audio file
+            video_info: Video metadata containing duration information
             
         Returns:
             Transcription with timestamps
         """
-        print(f"🎙️ Starting transcription with Whisper API")
+        print(f"🎙️ Starting intelligent transcription with adaptive model selection...")
         print(f"🎙️ Audio file: {audio_path}")
         
         try:
-            with open(audio_path, 'rb') as audio_file:
-                print(f"🎙️ Sending audio to Whisper API...")
-                # Use Whisper API with timestamp information
-                transcript = self.openai_client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file,
-                    response_format="verbose_json"  # Get detailed response with timestamps
-                )
-                
-            result = transcript.model_dump()
-            print(f"✅ Whisper transcription successful")
-            print(f"📝 Transcript text preview: {result.get('text', '')[:200]}...")
-            print(f"📝 Number of segments: {len(result.get('segments', []))}")
+            # Use the smart transcriber with video info for optimal model selection
+            transcript = self.transcriber.transcribe_with_video_info(
+                audio_path, 
+                video_info,
+                progress_callback=self._update_progress
+            )
             
-            return result
+            print(f"✅ Transcription successful")
+            print(f"📝 Text preview: {transcript.get('text', '')[:200]}...")
+            print(f"📝 Segments: {len(transcript.get('segments', []))}")
+            
+            # Save transcription to cache for recovery
+            try:
+                video_path = video_info.get('video_path', video_info.get('filename', 'unknown'))
+                self.cache_manager.save_transcription(video_path, transcript, video_info)
+            except Exception as cache_e:
+                print(f"⚠️ Failed to save transcription cache: {cache_e}")
+                # Don't fail the whole process if cache fails
+            
+            return transcript
             
         except Exception as e:
-            print(f"❌ Error in Whisper transcription: {str(e)}")
+            print(f"❌ Error in transcription: {str(e)}")
             print(f"❌ Exception type: {type(e).__name__}")
             import traceback
             print(f"❌ Full traceback: {traceback.format_exc()}")
@@ -514,13 +723,14 @@ IMPORTANT:
         
         return prompt
     
-    def _build_final_json(self, cuts_array: List[Dict], video_info: Dict) -> Dict:
+    def _build_final_json(self, cuts_array: List[Dict], video_info: Dict, video_path: str) -> Dict:
         """
         Build the final JSON object that matches the expected format
         
         Args:
             cuts_array: Array of cuts from LLM
             video_info: Video metadata
+            video_path: Path to the original video file
             
         Returns:
             Complete cuts data object
@@ -550,6 +760,18 @@ IMPORTANT:
                 "total_cuts": len(processed_cuts)
             }
         }
+        
+        # Save cuts data to cache for recovery
+        try:
+            processing_info = {
+                "total_segments": len(cuts_array),
+                "processed_cuts": len(processed_cuts),
+                "processing_method": "llm_analysis"
+            }
+            self.cache_manager.save_cuts(video_path, final_data, processing_info)
+        except Exception as cache_e:
+            print(f"⚠️ Failed to save cuts cache: {cache_e}")
+            # Don't fail the whole process if cache fails
         
         return final_data
     

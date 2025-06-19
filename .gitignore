@@ -185,3 +185,6 @@ cython_debug/
 ehthumbs.db
 Thumbs.db
 test_cuts.txt
+
+# Cache data - not tracked in repository
+data/

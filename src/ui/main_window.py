@@ -31,6 +31,7 @@ class MainWindow(ctk.CTk):
         self.current_phase = "video_loading"
         self.loaded_video_info = None
         self.loaded_cuts_data = None
+        self.has_cached_transcription = False
         
         # Initialize UI
         self.setup_ui()
@@ -118,6 +119,10 @@ class MainWindow(ctk.CTk):
             on_option_selected=self.on_cut_times_option_selected
         )
         cut_times_input.grid(row=0, column=0, sticky="nsew", padx=SPACING["lg"], pady=SPACING["lg"])
+        
+        # Pass cache information to the component if it supports it
+        if hasattr(cut_times_input, 'set_cache_status'):
+            cut_times_input.set_cache_status(self.has_cached_transcription)
     
     def show_manual_input_phase(self):
         """Show manual input phase"""
@@ -163,12 +168,47 @@ class MainWindow(ctk.CTk):
         
         return converted_cuts
     
-    def on_video_loaded(self, video_info):
-        """Handle video loaded event"""
+    def on_video_loaded(self, video_info, cached_cuts=None, has_transcription=False):
+        """
+        Handle video loaded event with cache verification
+        
+        Args:
+            video_info: Información del video
+            cached_cuts: Cuts cargados desde caché (si existen)
+            has_transcription: Si existe transcripción en caché
+        """
         self.loaded_video_info = video_info
-        self.current_phase = "cut_times_input"
+        
+        if cached_cuts:
+            # Ir directo al editor principal con cuts cargados
+            print("🎯 Loading cuts from cache, going directly to main editor")
+            self.loaded_cuts_data = cached_cuts
+            self._go_to_main_editor()
+            
+        elif has_transcription:
+            # Ir a ventana de selección con indicador de transcripción disponible
+            print("📝 Transcription available, going to input selection with indicator")
+            self._go_to_cut_times_input(has_cached_transcription=True)
+            
+        else:
+            # Flujo normal
+            print("🔄 No cache, proceeding with normal flow")
+            self._go_to_cut_times_input()
+    
+    def _go_to_main_editor(self):
+        """Navigate directly to main editor"""
+        self.current_phase = "main_editor"
         self.show_current_phase()
-        print(f"📹 Video loaded: {video_info['filename']} ({video_info['duration']}) - Moving to cut times input phase")
+        if self.loaded_video_info:
+            print(f"📹 Video loaded: {self.loaded_video_info['filename']} - Going directly to main editor")
+    
+    def _go_to_cut_times_input(self, has_cached_transcription=False):
+        """Navigate to cut times input with cache information"""
+        self.current_phase = "cut_times_input"
+        self.has_cached_transcription = has_cached_transcription  # Store for later use
+        self.show_current_phase()
+        if self.loaded_video_info:
+            print(f"📹 Video loaded: {self.loaded_video_info['filename']} - Moving to cut times input phase")
     
     def on_cut_times_option_selected(self, option, data=None):
         """Handle cut times option selection"""

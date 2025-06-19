@@ -1,9 +1,16 @@
+# Core dependencies for live-video-editor
 customtkinter>=5.2.2
 ffmpeg-python==0.2.0
-opencv-python==4.9.0
-Pillow==10.0.1
+opencv-python>=4.9.0
+Pillow>=10.0.1
 openai>=1.35.0
 python-dotenv==1.0.0
 tkinterdnd2>=0.3.0
-numpy<2.0.0
 tkvideoplayer>=2.3
+
+# AI/ML dependencies
+torch>=2.7.0
+git+https://github.com/openai/whisper.git
+
+# Optional: For better performance
+# numpy>=2.2.0  # Will be installed by torch/whisper automatically

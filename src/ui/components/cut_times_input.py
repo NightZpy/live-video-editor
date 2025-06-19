@@ -25,6 +25,10 @@ class CutTimesInputComponent(ctk.CTkFrame):
         self.is_processing = False
         self.loaded_cuts_data = None
         
+        # Cache state
+        self.has_cached_transcription = False
+        self.cache_status_label = None
+        
         # Configure grid
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -57,14 +61,14 @@ class CutTimesInputComponent(ctk.CTkFrame):
         )
         title_label.grid(row=0, column=0, pady=(SPACING["md"], SPACING["xs"]))
         
-        # Description
+        # Description (save reference for cache status updates)
         desc_style = get_text_style("secondary")
-        desc_label = ctk.CTkLabel(
+        self.desc_label = ctk.CTkLabel(
             title_frame,
             text="Choose how to define the timestamps for your video cuts",
             **desc_style
         )
-        desc_label.grid(row=1, column=0, pady=(0, SPACING["md"]))
+        self.desc_label.grid(row=1, column=0, pady=(0, SPACING["md"]))
     
     def create_content_area(self):
         """Create the main content with three options"""
@@ -431,6 +435,35 @@ class CutTimesInputComponent(ctk.CTkFrame):
         else:
             print("❌ LLM analysis failed or was cancelled")
             print(f"❌ Success: {success}, Result: {result}")
+    
+    def set_cache_status(self, has_transcription: bool):
+        """Establecer estado de caché y actualizar UI"""
+        self.has_cached_transcription = has_transcription
+        self._update_cache_indicators()
+
+    def _update_cache_indicators(self):
+        """Actualizar indicadores visuales de caché"""
+        if self.has_cached_transcription:
+            # Actualizar el subtítulo para mostrar el estado de caché
+            self.desc_label.configure(
+                text="⚡ Transcripción disponible - El análisis IA será más rápido",
+                text_color="green"
+            )
+            
+            # Actualizar botón de IA para indicar proceso más rápido
+            if hasattr(self, 'auto_btn'):
+                original_text = "Analyze with AI"
+                self.auto_btn.configure(text=f"🚀 {original_text} (Rápido)")
+        else:
+            # Restaurar texto original del subtítulo
+            self.desc_label.configure(
+                text="Choose how to define the timestamps for your video cuts",
+                text_color=None  # Usar color por defecto
+            )
+            
+            # Restaurar texto original del botón
+            if hasattr(self, 'auto_btn'):
+                self.auto_btn.configure(text="Analyze with AI")
     
     def on_api_key_change(self, event):
         """Handle API key input change"""
