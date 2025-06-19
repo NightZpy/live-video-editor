@@ -7,6 +7,7 @@ import customtkinter as ctk
 import tkinter as tk
 from typing import Optional
 import cv2
+import time
 from PIL import Image, ImageTk
 from ..styles.theme import get_frame_style, get_text_style, get_button_style, COLORS, SPACING
 
@@ -33,6 +34,14 @@ class VideoPreviewComponent(ctk.CTkFrame):
         self.video_canvas: Optional[tk.Canvas] = None
         self.current_frame: Optional[Image.Image] = None
         self.current_photo_image: Optional[ImageTk.PhotoImage] = None
+        
+        # Video playback settings
+        self.video_fps: float = 30.0  # Default FPS, will be updated when video is loaded
+        self.frame_delay: float = 33.333  # Delay between frames in milliseconds (more precise)
+        
+        # Playback timing
+        self.playback_start_time: Optional[float] = None
+        self.expected_frame_time: float = 0.0
         
         # Setup UI
         self.setup_ui()
@@ -384,12 +393,6 @@ class VideoPreviewComponent(ctk.CTkFrame):
         )
         quality_btn.grid(row=0, column=3, padx=SPACING["sm"], pady=SPACING["sm"])
     
-    def setup_video_callbacks(self):
-        """Setup callbacks for video player events"""
-        # TkinterVideo handles callbacks internally
-        # We'll monitor playback status through our own methods
-        pass
-    
     def setup_keyboard_shortcuts(self):
         """Setup keyboard shortcuts for playback control"""
         # Bind spacebar to play/pause (need to focus the widget first)
@@ -423,6 +426,10 @@ class VideoPreviewComponent(ctk.CTkFrame):
         self.is_playing = True
         self.is_paused = False
         
+        # Initialize timing for accurate playback
+        self.playback_start_time = time.time()
+        self.expected_frame_time = 0.0
+        
         # Update button text
         self.play_pause_btn.configure(text="⏸️ Pause")
         
@@ -443,6 +450,10 @@ class VideoPreviewComponent(ctk.CTkFrame):
         self.is_playing = False
         self.is_paused = True
         
+        # Reset timing variables
+        self.playback_start_time = None
+        self.expected_frame_time = 0.0
+        
         # Stop monitoring
         self.stop_cut_monitoring()
         
@@ -459,6 +470,12 @@ class VideoPreviewComponent(ctk.CTkFrame):
         # Stop playback
         self.is_playing = False
         self.is_paused = False
+        
+        # Reset timing variables
+        self.playback_start_time = None
+        self.expected_frame_time = 0.0
+        if hasattr(self, '_frame_count'):
+            delattr(self, '_frame_count')
         
         # Stop monitoring
         self.stop_cut_monitoring()
@@ -564,7 +581,24 @@ class VideoPreviewComponent(ctk.CTkFrame):
             if not self.video_capture.isOpened():
                 raise Exception("Could not open video file")
             
+            # Get video FPS for correct playback timing
+            # First try to get it from video_info if provided
+            if video_info and 'fps' in video_info:
+                self.video_fps = float(video_info['fps'])
+                print(f"📊 Using FPS from video_info: {self.video_fps:.2f}")
+            else:
+                # Fallback to getting FPS from OpenCV
+                self.video_fps = self.video_capture.get(cv2.CAP_PROP_FPS)
+                if self.video_fps <= 0:
+                    self.video_fps = 30.0  # Final fallback
+                print(f"📊 Using FPS from OpenCV: {self.video_fps:.2f}")
+            
+            # Calculate frame delay in milliseconds with more precision
+            self.frame_delay = 1000.0 / self.video_fps
+            
             print(f"✅ Video loaded successfully: {video_path}")
+            print(f"📊 Video FPS: {self.video_fps:.2f}, Frame delay: {self.frame_delay}ms")
+            
         except Exception as e:
             print(f"❌ Failed to load video: {video_path} - {e}")
     
@@ -788,11 +822,17 @@ class VideoPreviewComponent(ctk.CTkFrame):
             print("   This will be implemented when the main window is updated")
     
     def play_frame(self):
-        """Play a single frame and schedule the next one"""
+        """Play a single frame and schedule the next one with accurate timing"""
         if not self.is_playing or not self.video_capture or not self.selected_cut:
             return
         
         try:
+            # Calculate timing for accurate playback
+            current_time = time.time()
+            if self.playback_start_time is None:
+                self.playback_start_time = current_time
+                self.expected_frame_time = 0.0
+            
             # Get current frame
             ret, frame = self.video_capture.read()
             if ret:
@@ -818,8 +858,24 @@ class VideoPreviewComponent(ctk.CTkFrame):
                 cut_duration = end_time - start_time
                 self.update_time_display(cut_current_time, cut_duration)
                 
-                # Schedule next frame (approximately 30 FPS)
-                self.after(33, self.play_frame)
+                # Calculate next frame timing with better accuracy
+                self.expected_frame_time += self.frame_delay
+                elapsed_time = (current_time - self.playback_start_time) * 1000  # Convert to ms
+                time_until_next_frame = max(1, int(self.expected_frame_time - elapsed_time))
+                
+                # Schedule next frame with calculated delay
+                self.after(time_until_next_frame, self.play_frame)
+                
+                # Debug timing info (remove this in production)
+                if hasattr(self, '_frame_count'):
+                    self._frame_count += 1
+                else:
+                    self._frame_count = 1
+                
+                if self._frame_count % 30 == 0:  # Print every 30 frames
+                    actual_fps = self._frame_count / ((current_time - self.playback_start_time) or 1)
+                    print(f"🎬 Playback FPS: {actual_fps:.2f} (target: {self.video_fps:.2f})")
+                    
             else:
                 # End of video reached
                 self.stop_playback()

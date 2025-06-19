@@ -325,17 +325,17 @@ hh:mm:ss - hh:mm:ss - title - description
 - [DONE] Real time file loading and parsing
 - [DONE] Time processing and JSON conversion
 - [DONE] Basic cuts list display
-- [ ] Basic video preview with cut playback
+- [DONE] Basic video preview with cut playback
   - [DONE] 3.5.1 Video Player Backend Integration
-  - [PARTIAL] 3.5.2 Playback Controls Implementation
+  - [DONE] 3.5.2 Playback Controls Implementation
     - [DONE] UI Controls (Play/Pause/Stop buttons)
     - [DONE] Play state management
     - [DONE] Time display
     - [DONE] Keyboard shortcuts
-    - [ ] Real video playback implementation (thread-safe streaming)
+    - [DONE] Real video playback implementation (OpenCV + event-driven timing)
   - [ ] 3.5.3 Interactive Timeline Enhancement
-  - [ ] 3.5.4 Cut-Specific Playback Logic
-  - [ ] 3.5.5 UI Integration and Events
+  - [DONE] 3.5.4 Cut-Specific Playback Logic
+  - [DONE] 3.5.5 UI Integration and Events
 
 ### Phase 4 ✅
 - [ ] Advanced FFmpeg integration
