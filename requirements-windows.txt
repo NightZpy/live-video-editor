@@ -1,0 +1,10 @@
+# Windows-specific dependencies (NVIDIA GPU and CPU support)
+# For AMD GPU support on Windows, use requirements-amd.txt instead
+
+-r requirements-base.txt
+
+# Video player - Windows compatible version
+# Using opencv-python for video display instead of tkvideoplayer
+# which has issues with av compilation on Windows
+imageio[ffmpeg]>=2.31.0
+imageio-ffmpeg>=0.4.8

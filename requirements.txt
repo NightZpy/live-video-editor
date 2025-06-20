@@ -1,16 +1,23 @@
-# Core dependencies for live-video-editor
-customtkinter>=5.2.2
-ffmpeg-python==0.2.0
-opencv-python>=4.9.0
-Pillow>=10.0.1
-openai>=1.35.0
-python-dotenv==1.0.0
-tkinterdnd2>=0.3.0
+# Cross-platform dependencies for live-video-editor
+# 
+# GPU SUPPORT OPTIONS:
+# - For NVIDIA GPU: pip install -r requirements-windows.txt (or requirements-macos.txt)
+# - For AMD GPU: pip install -r requirements-amd.txt
+# - For CPU only: pip install -r requirements-base.txt
+#
+# PLATFORM-SPECIFIC:
+# - For Windows: pip install -r requirements-windows.txt
+# - For macOS/Linux: pip install -r requirements-macos.txt
+
+# Include base dependencies (NVIDIA GPU/CPU support)
+-r requirements-base.txt
+
+# Platform-specific video player
+# Comment/uncomment based on your platform:
+
+# For macOS/Linux (original working version):
 tkvideoplayer>=2.3
 
-# AI/ML dependencies
-torch>=2.7.0
-git+https://github.com/openai/whisper.git
-
-# Optional: For better performance
-# numpy>=2.2.0  # Will be installed by torch/whisper automatically
+# For Windows (alternative - see requirements-windows.txt):
+# imageio[ffmpeg]>=2.31.0
+# imageio-ffmpeg>=0.4.8

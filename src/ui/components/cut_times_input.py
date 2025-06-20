@@ -457,8 +457,7 @@ class CutTimesInputComponent(ctk.CTkFrame):
         else:
             # Restaurar texto original del subtítulo
             self.desc_label.configure(
-                text="Choose how to define the timestamps for your video cuts",
-                text_color=None  # Usar color por defecto
+                text="Choose how to define the timestamps for your video cuts"
             )
             
             # Restaurar texto original del botón

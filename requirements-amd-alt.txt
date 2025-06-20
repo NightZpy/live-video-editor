@@ -1,0 +1,27 @@
+# Alternative AMD GPU installation options
+# Try these if requirements-amd.txt doesn't work
+
+# Include base dependencies
+-r requirements-base-no-torch.txt
+
+# Option 1: ROCm 5.6 (Recommended)
+# --index-url https://download.pytorch.org/whl/rocm5.6
+# torch>=2.1.0
+# torchvision>=0.16.0
+
+# Option 2: ROCm 5.4.2 (Most stable)
+# --index-url https://download.pytorch.org/whl/rocm5.4.2
+# torch==2.0.1
+# torchvision==0.15.2
+
+# Option 3: Manual installation (if pip requirements fail)
+# pip install torch==2.0.1+rocm5.4.2 --index-url https://download.pytorch.org/whl/rocm5.4.2
+# pip install torchvision==0.15.2+rocm5.4.2 --index-url https://download.pytorch.org/whl/rocm5.4.2
+
+# Option 4: CPU fallback with all features
+# torch>=2.1.0
+# torchvision>=0.16.0
+
+# Instructions:
+# 1. Uncomment one of the options above
+# 2. pip install -r requirements-amd-alt.txt

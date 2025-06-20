@@ -1,0 +1,5 @@
+# macOS-specific dependencies
+-r requirements-base.txt
+
+# Video player - Original working version for macOS
+tkvideoplayer>=2.3

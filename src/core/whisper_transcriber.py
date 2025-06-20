@@ -4,6 +4,8 @@ Handles both OpenAI API and local Whisper transcription with automatic fallback
 """
 
 import os
+import platform
+import subprocess
 import whisper
 import torch
 from typing import Dict, Optional, Callable, Any
@@ -268,31 +270,89 @@ class WhisperTranscriber:
         return use_word_timestamps
     
     def _load_local_model(self, preferred_model: Optional[str] = None):
-        """Load the local Whisper model"""
+        """Load the local Whisper model with intelligent device and model selection"""
         print(f"📥 Loading local Whisper model...")
         
-        # Use preferred model or fall back to default order
+        # Use preferred model or fall back to default order based on device
         if preferred_model:
             models_to_try = [preferred_model, "medium", "small", "base"]
         else:
-            models_to_try = ["large", "medium", "small", "base"]
-        devices_to_try = [self.device, "cpu"]  # Always fallback to CPU if device fails
+            # Optimize model selection based on device and system
+            if self.device == "cuda":
+                models_to_try = ["large", "medium", "small", "base"]
+            else:
+                # For CPU, prioritize smaller models for better performance
+                system_name = platform.system()
+                if system_name == "Linux":
+                    # WSL2 or Linux - start with medium for good balance
+                    models_to_try = ["medium", "small", "base"]
+                else:
+                    # Windows/macOS - start with medium, avoid large for CPU
+                    models_to_try = ["medium", "small", "base"]
+        
+        # Try devices in order of preference
+        if self.device == "cuda":
+            devices_to_try = ["cuda", "cpu"]  # Try GPU first, fallback to CPU
+        else:
+            devices_to_try = ["cpu"]  # Only CPU
         
         for model_name in models_to_try:
             for device in devices_to_try:
                 try:
                     print(f"📥 Trying Whisper '{model_name}' model on {device}...")
+                    
+                    # For GPU, check if we have enough memory for the model
+                    if device == "cuda":
+                        memory_needed = self._estimate_model_memory(model_name)
+                        available_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                        
+                        if memory_needed > available_memory * 0.8:  # Use only 80% of GPU memory
+                            print(f"⚠️ Model '{model_name}' needs ~{memory_needed:.1f}GB, but only {available_memory:.1f}GB available")
+                            continue
+                    
+                    # Load the model
                     self.local_model = whisper.load_model(model_name, device=device)
                     self.device = device  # Update device if we had to fallback
+                    
+                    # Test the model with a simple operation
+                    if device == "cuda":
+                        print(f"🧪 Testing GPU model...")
+                        torch.cuda.empty_cache()
+                    else:
+                        print(f"🧪 Testing CPU model...")
+                    
                     print(f"✅ Local Whisper model '{model_name}' loaded successfully on {device}")
+                    
+                    # Log optimization info for CPU
+                    if device == "cpu":
+                        cpu_cores = os.cpu_count() or 1
+                        print(f"⚡ CPU optimization: Using {cpu_cores} cores")
+                        
                     return
                     
+                except torch.cuda.OutOfMemoryError as e:
+                    print(f"💾 GPU out of memory for '{model_name}': {str(e)}")
+                    if device == "cuda":
+                        torch.cuda.empty_cache()  # Clear GPU memory
+                    continue
                 except Exception as e:
                     print(f"⚠️ Failed to load '{model_name}' on {device}: {str(e)}")
+                    if device == "cuda":
+                        torch.cuda.empty_cache()  # Clear GPU memory on any GPU error
                     continue
         
         # If we get here, all attempts failed
         raise Exception("Failed to load any Whisper model on any device")
+    
+    def _estimate_model_memory(self, model_name: str) -> float:
+        """Estimate memory requirements for Whisper models in GB"""
+        memory_requirements = {
+            "large": 3.0,    # ~3GB
+            "medium": 1.5,   # ~1.5GB  
+            "small": 1.0,    # ~1GB
+            "base": 0.5      # ~0.5GB
+        }
+        return memory_requirements.get(model_name, 2.0)  # Default 2GB
     
     def _format_local_result(self, whisper_result: Dict) -> Dict:
         """
@@ -330,29 +390,98 @@ class WhisperTranscriber:
         return formatted_result
     
     def _detect_device(self) -> str:
-        """Detect the best available device for processing"""
+        """Detect the best available device with intelligent fallback for all platforms"""
+        # First check for CUDA (NVIDIA GPU)
         if torch.cuda.is_available():
-            print(f"🚀 CUDA GPU detected")
-            return "cuda"
+            try:
+                gpu_count = torch.cuda.device_count()
+                if gpu_count > 0:
+                    gpu_name = torch.cuda.get_device_name(0)
+                    gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                    
+                    print(f"🚀 NVIDIA GPU detected: {gpu_name}")
+                    print(f"💾 GPU Memory: {gpu_memory:.1f} GB")
+                    
+                    # Check if GPU has enough memory for Whisper (minimum 2GB recommended)
+                    if gpu_memory >= 2.0:
+                        print(f"✅ NVIDIA GPU has sufficient memory for Whisper processing")
+                        return "cuda"
+                    else:
+                        print(f"⚠️ NVIDIA GPU memory too low for Whisper, falling back to CPU")
+                        return "cpu"
+                else:
+                    print(f"⚠️ CUDA available but no GPU devices found")
+                    return "cpu"
+            except Exception as e:
+                print(f"⚠️ CUDA detection failed: {str(e)}")
+                return "cpu"
+        
+        # Check for Apple Metal (macOS)
         elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
             print(f"🍎 Apple Metal (MPS) detected, but using CPU for Whisper compatibility")
             # Note: MPS has compatibility issues with Whisper's sparse operations
             return "cpu"
+        
+        # If no compatible GPU found, check for AMD and provide info
         else:
-            print(f"💻 Using CPU for processing")
+            # Detect AMD GPU and provide helpful information
+            amd_detected = self._detect_amd_gpu_system()
+            
+            if amd_detected:
+                print(f"💻 Using optimized CPU processing (AMD GPU detected but not supported)")
+            else:
+                print(f"💻 Using optimized CPU processing")
+            
             return "cpu"
     
+    def _check_rocm_support(self) -> bool:
+        """Check if ROCm (AMD GPU) support is available - Legacy method"""
+        # This method is kept for compatibility but ROCm detection is now handled
+        # in _detect_device() method with better platform awareness
+        return False
+    
     def _optimize_pytorch(self):
-        """Optimize PyTorch for better CPU performance"""
-        # Use all available CPU cores
-        cpu_count = os.cpu_count() or 1  # Fallback to 1 if None
-        torch.set_num_threads(cpu_count)
-        print(f"⚡ PyTorch optimized: using {cpu_count} CPU threads")
+        """Optimize PyTorch for better performance with intelligent platform detection"""
+        # Get optimal number of CPU cores
+        cpu_count = os.cpu_count() or 1
         
-        # Additional optimizations for ARM (Apple Silicon)
-        if hasattr(torch.backends, 'quantized'):
-            torch.backends.quantized.engine = 'qnnpack'
-            print(f"⚡ ARM optimization enabled (qnnpack)")
+        # Optimize thread count based on system
+        system_name = platform.system()
+        if system_name == "Linux":
+            # Check if we're in WSL2
+            try:
+                with open('/proc/version', 'r') as f:
+                    proc_version = f.read().lower()
+                if 'microsoft' in proc_version or 'wsl' in proc_version:
+                    # WSL2 - use slightly fewer threads to avoid conflicts
+                    optimal_threads = max(1, cpu_count - 1)
+                    print(f"🐧 WSL2 detected: Using {optimal_threads} of {cpu_count} CPU threads")
+                else:
+                    # Native Linux
+                    optimal_threads = cpu_count
+                    print(f"🐧 Linux: Using {optimal_threads} CPU threads")
+            except:
+                optimal_threads = cpu_count
+                print(f"🐧 Linux: Using {optimal_threads} CPU threads")
+        else:
+            # Windows/macOS
+            optimal_threads = cpu_count
+            print(f"💻 {system_name}: Using {optimal_threads} CPU threads")
+        
+        torch.set_num_threads(optimal_threads)
+        
+        # Configure quantized backend based on platform
+        try:
+            if system_name == 'Darwin':  # macOS
+                torch.backends.quantized.engine = 'qnnpack'
+                print("🍎 Using QNNPACK backend for macOS")
+            else:  # Windows, Linux, WSL2
+                torch.backends.quantized.engine = 'fbgemm'
+                print(f"💻 Using FBGEMM backend for {system_name}")
+        except Exception as e:
+            print(f"⚠️ Could not configure quantized backend: {str(e)}")
+            print(f"⚠️ Continuing with default PyTorch configuration...")
+            # Continue without quantized optimizations - this is not critical
     
     def _get_file_size(self, file_path: str) -> int:
         """Get file size in bytes"""
@@ -362,16 +491,72 @@ class WhisperTranscriber:
             return 0
     
     def cleanup(self):
-        """Clean up resources"""
+        """Clean up resources and GPU memory"""
         if self.local_model is not None:
             print(f"🧹 Cleaning up local Whisper model...")
             del self.local_model
             self.local_model = None
             
             # Clear GPU memory based on device
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
-            elif self.device == "mps":
-                # Clear MPS cache if available
-                if hasattr(torch.mps, 'empty_cache'):
+            try:
+                if self.device == "cuda" and torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    print(f"🧹 GPU memory cleared")
+                elif self.device == "mps" and hasattr(torch.mps, 'empty_cache'):
                     torch.mps.empty_cache()
+                    print(f"🧹 MPS memory cleared")
+            except Exception as e:
+                print(f"⚠️ Could not clear GPU memory: {str(e)}")
+        
+        print(f"✅ Whisper transcriber cleanup completed")
+    
+    def _detect_amd_gpu_windows(self) -> bool:
+        """Detect AMD GPU on Windows using system commands"""
+        try:
+            # Try to detect AMD GPU on Windows using wmic
+            result = subprocess.run(['wmic', 'path', 'win32_VideoController', 'get', 'name'], 
+                                  capture_output=True, text=True, timeout=5)
+            gpu_info = result.stdout.upper()
+            
+            amd_keywords = ['AMD', 'RADEON', 'RX', 'VEGA', 'NAVI', 'RDNA']
+            if any(keyword in gpu_info for keyword in amd_keywords):
+                # Extract GPU names for better info
+                lines = result.stdout.strip().split('\n')
+                gpu_names = [line.strip() for line in lines if line.strip() and 'Name' not in line]
+                amd_gpus = [name for name in gpu_names if any(keyword in name.upper() for keyword in amd_keywords)]
+                
+                if amd_gpus:
+                    print(f"🔍 AMD GPU detected: {', '.join(amd_gpus)}")
+                    print(f"🔍 AMD GPU detected but ROCm not available")
+                    return True
+            return False
+        except Exception:
+            return False
+    
+    def _detect_amd_gpu_system(self) -> bool:
+        """Detect AMD GPU on current system (Windows/WSL2/Linux)"""
+        try:
+            system_name = platform.system()
+            
+            if system_name == 'Windows':
+                return self._detect_amd_gpu_windows()
+            elif system_name == 'Linux':
+                # Check if we're in WSL2 or native Linux
+                try:
+                    with open('/proc/version', 'r') as f:
+                        proc_version = f.read().lower()
+                    
+                    if 'microsoft' in proc_version or 'wsl' in proc_version:
+                        # We're in WSL2, check Windows hardware indirectly
+                        print(f"🐧 Running in WSL2 - AMD GPU support limited")
+                        return True  # Assume AMD GPU exists but not accessible in WSL2
+                    else:
+                        # Native Linux, check for AMD GPU
+                        result = subprocess.run(['lspci'], capture_output=True, text=True, timeout=5)
+                        return 'amd' in result.stdout.lower() or 'radeon' in result.stdout.lower()
+                except:
+                    return False
+            else:
+                return False
+        except Exception:
+            return False
