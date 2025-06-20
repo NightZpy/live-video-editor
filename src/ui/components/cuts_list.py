@@ -108,7 +108,7 @@ class CutsListComponent(ctk.CTkFrame):
         self.cut_widgets.clear()
     
     def create_cut_item(self, cut_data, index):
-        """Create a single cut item"""
+        """Create a single cut item with enhanced information display"""
         # Main cut frame
         cut_frame = ctk.CTkFrame(
             self.scrollable_frame,
@@ -124,7 +124,7 @@ class CutsListComponent(ctk.CTkFrame):
         self.cut_widgets.append(cut_frame)
         cut_frame.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
         
-        # Thumbnail placeholder
+        # Thumbnail with type indicator
         thumbnail = ctk.CTkFrame(
             cut_frame,
             width=80,
@@ -135,11 +135,29 @@ class CutsListComponent(ctk.CTkFrame):
         thumbnail.grid(row=0, column=0, rowspan=3, padx=SPACING["md"], pady=SPACING["md"], sticky="ns")
         thumbnail.grid_propagate(False)
         
-        # Thumbnail icon
+        # Type-based thumbnail icon
+        cut_type = cut_data.get("type", "unknown")
+        if cut_type == "major_theme":
+            thumb_icon_text = "📚"  # Book for major themes (15+ minutes)
+            thumb_color = COLORS["info"]
+        elif cut_type == "thematic_segment":
+            thumb_icon_text = "📖"  # Open book for thematic segments (5-15 minutes)
+            thumb_color = COLORS["accent"]
+        elif cut_type == "standard_clip":
+            thumb_icon_text = "🎬"  # Film for standard clips (61s - 5min)
+            thumb_color = COLORS["success"]
+        elif cut_type == "quick_insight":
+            thumb_icon_text = "⚡"  # Lightning for quick insights (15-60s)
+            thumb_color = COLORS["warning"]
+        else:
+            thumb_icon_text = "�"  # Default
+            thumb_color = COLORS["text_secondary"]
+            
         thumb_icon = ctk.CTkLabel(
             thumbnail,
-            text="🎬",
-            font=("Segoe UI", 20)
+            text=thumb_icon_text,
+            font=("Segoe UI", 20),
+            text_color=thumb_color
         )
         thumb_icon.grid(row=0, column=0, sticky="nsew")
         thumb_icon.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
@@ -149,48 +167,107 @@ class CutsListComponent(ctk.CTkFrame):
         info_frame.grid(row=0, column=1, columnspan=2, sticky="ew", padx=(0, SPACING["md"]), pady=SPACING["sm"])
         info_frame.grid_columnconfigure(0, weight=1)
         
-        # Title
+        # Title with type badge
+        title_frame = ctk.CTkFrame(info_frame, fg_color="transparent")
+        title_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(SPACING["sm"], SPACING["xs"]))
+        title_frame.grid_columnconfigure(0, weight=1)
+        
         title_style = get_text_style("default")
         title_label = ctk.CTkLabel(
-            info_frame,
+            title_frame,
             text=cut_data.get("title", f"Cut {index + 1}"),
             **title_style
         )
-        title_label.grid(row=0, column=0, sticky="w", pady=(SPACING["sm"], SPACING["xs"]))
+        title_label.grid(row=0, column=0, sticky="w")
         title_label.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
         
-        # Time range
+        # Type badge
+        if cut_type in ["major_theme", "highlight_clip"]:
+            badge_text = "THEME" if cut_type == "major_theme" else "CLIP"
+            badge_color = COLORS["info"] if cut_type == "major_theme" else COLORS["accent"]
+            
+            type_badge = ctk.CTkLabel(
+                title_frame,
+                text=badge_text,
+                font=("Segoe UI", 9, "bold"),
+                text_color="white",
+                fg_color=badge_color,
+                corner_radius=3,
+                width=50,
+                height=18
+            )
+            type_badge.grid(row=0, column=1, sticky="e", padx=(SPACING["sm"], 0))
+            type_badge.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
+        
+        # Time range and duration row
+        time_frame = ctk.CTkFrame(info_frame, fg_color="transparent") 
+        time_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=SPACING["xs"])
+        time_frame.grid_columnconfigure(0, weight=1)
+        
         time_style = get_text_style("small")
-        start_time = cut_data.get("start_time", "00:00:00")
-        end_time = cut_data.get("end_time", "00:00:00")
+        start_time = cut_data.get("start_time", cut_data.get("start", "00:00:00"))
+        end_time = cut_data.get("end_time", cut_data.get("end", "00:00:00"))
+        duration = cut_data.get("duration", "00:00:00")
+        
         time_label = ctk.CTkLabel(
-            info_frame,
+            time_frame,
             text=f"{start_time} - {end_time}",
             **time_style
         )
-        time_label.grid(row=1, column=0, sticky="w", pady=SPACING["xs"])
+        time_label.grid(row=0, column=0, sticky="w")
         time_label.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
         
-        # Duration
-        duration = cut_data.get("duration", "00:00:00")
         duration_label = ctk.CTkLabel(
-            info_frame,
-            text=f"Duration: {duration}",
+            time_frame,
+            text=f"• {duration}",
             **time_style
         )
-        duration_label.grid(row=2, column=0, sticky="w", pady=(SPACING["xs"], SPACING["sm"]))
+        duration_label.grid(row=0, column=1, sticky="e")
         duration_label.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
+        
+        # Social media value and status row
+        bottom_frame = ctk.CTkFrame(info_frame, fg_color="transparent")
+        bottom_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(SPACING["xs"], SPACING["sm"]))
+        bottom_frame.grid_columnconfigure(0, weight=1)
+        
+        # Social media value indicator
+        social_value = cut_data.get("social_media_value", "unknown")
+        if social_value == "high":
+            value_text = "🔥 High Value"
+            value_color = COLORS["success"]
+        elif social_value == "medium":
+            value_text = "👍 Medium Value"
+            value_color = COLORS["warning"]
+        elif social_value == "low":
+            value_text = "📝 Low Value"
+            value_color = COLORS["text_secondary"]
+        else:
+            value_text = "❓ Unknown"
+            value_color = COLORS["text_secondary"]
+            
+        social_value_style = get_text_style("small")
+        # Override text_color from style with our specific color
+        social_value_style_custom = social_value_style.copy()
+        social_value_style_custom["text_color"] = value_color
+        
+        social_value_label = ctk.CTkLabel(
+            bottom_frame,
+            text=value_text,
+            **social_value_style_custom
+        )
+        social_value_label.grid(row=0, column=0, sticky="w")
+        social_value_label.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
         
         # Status indicator
         status = cut_data.get("status", "ready")
         status_color = COLORS["success"] if status == "ready" else COLORS["warning"]
         status_label = ctk.CTkLabel(
-            info_frame,
+            bottom_frame,
             text=f"● {status.title()}",
             text_color=status_color,
             font=("Segoe UI", 12)
         )
-        status_label.grid(row=0, column=1, sticky="e", pady=(SPACING["sm"], SPACING["xs"]))
+        status_label.grid(row=0, column=1, sticky="e")
         status_label.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
     
     def select_cut(self, index):
@@ -225,9 +302,32 @@ class CutsListComponent(ctk.CTkFrame):
                 )
     
     def update_counter(self):
-        """Update the cuts counter"""
-        count = len(self.cuts_data)
-        self.counter_label.configure(text=f"{count} cut{'s' if count != 1 else ''}")
+        """Update the cuts counter with type breakdown"""
+        total_count = len(self.cuts_data)
+        
+        # Count by type
+        theme_count = len([cut for cut in self.cuts_data if cut.get("type") == "major_theme"])
+        clip_count = len([cut for cut in self.cuts_data if cut.get("type") == "highlight_clip"])
+        
+        # Count by social media value
+        high_value_count = len([cut for cut in self.cuts_data if cut.get("social_media_value") == "high"])
+        
+        if total_count == 0:
+            counter_text = "No cuts available"
+        else:
+            # Build counter text with breakdown
+            counter_parts = [f"{total_count} total"]
+            
+            if theme_count > 0:
+                counter_parts.append(f"{theme_count} themes")
+            if clip_count > 0:
+                counter_parts.append(f"{clip_count} clips")
+            if high_value_count > 0:
+                counter_parts.append(f"{high_value_count} high-value")
+                
+            counter_text = " • ".join(counter_parts)
+        
+        self.counter_label.configure(text=counter_text)
     
     def get_mock_cuts_data(self):
         """Generate mock cuts data for testing"""

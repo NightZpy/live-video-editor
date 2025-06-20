@@ -50,7 +50,7 @@ class LLMCutsProcessor:
             print(f"🔑 Using API key from environment variable")
         
         # Load model configuration from environment variables with defaults
-        self.default_model = os.getenv('DEFAULT_MODEL', 'gpt-4o-mini')
+        self.default_model = os.getenv('DEFAULT_MODEL', 'gpt-4.1')
         self.max_completion_tokens = int(os.getenv('MAX_COMPLETION_TOKENS', '8192'))
         
         # Model configuration with fallback strategy
@@ -272,7 +272,7 @@ class LLMCutsProcessor:
                 raise Exception("Processing cancelled")
             
             self._update_progress("analyzing_with_ai", 80.0, "Validando y optimizando cortes...")
-            validated_cuts = self._validate_and_adjust_cuts(cuts_array)
+            validated_cuts = self._validate_and_adjust_cuts(cuts_array, cached_video_info)
             
             self._update_progress("finalizing", 90.0, "Construyendo resultado final...")
             
@@ -360,7 +360,7 @@ class LLMCutsProcessor:
             if self.progress_callback:
                 self.progress_callback("analyzing_with_ai", 90.0, "Validating and optimizing cuts...")
             
-            optimized_cuts = self._validate_and_adjust_cuts(cuts_data)
+            optimized_cuts = self._validate_and_adjust_cuts(cuts_data, video_info)
             
             # Progress update
             if self.progress_callback:
@@ -440,7 +440,7 @@ class LLMCutsProcessor:
                 
             # Validate and adjust cuts for quality
             self._update_progress("analyzing_with_ai", 90.0, "Validating and optimizing cuts...")
-            validated_cuts = self._validate_and_adjust_cuts(cuts_array)
+            validated_cuts = self._validate_and_adjust_cuts(cuts_array, video_info_with_path)
             print(f"🔍 Validation completed. Final cuts: {len(validated_cuts)} segments")
             
             if self.is_cancelled:
@@ -662,6 +662,44 @@ class LLMCutsProcessor:
                     else:
                         raise Exception("Invalid JSON structure: expected object with 'cuts' array or direct array")
                     
+                    # IMMEDIATE VALIDATION: Check for invalid timestamps
+                    print(f"🔍 Initial validation: checking for invalid timestamps...")
+                    valid_cuts = []
+                    for i, cut in enumerate(cuts_data):
+                        start_time = cut.get("start", "00:00:00")
+                        end_time = cut.get("end", "00:00:00")
+                        
+                        # Check for identical start/end times (0 duration)
+                        if start_time == end_time:
+                            print(f"❌ INVALID CUT DETECTED: Cut {i+1} '{cut.get('title', 'Unknown')}' has identical start/end times: {start_time}")
+                            continue  # Skip this invalid cut
+                        
+                        # Check for valid timestamp format
+                        try:
+                            start_seconds = self._timestamp_to_seconds(start_time)
+                            end_seconds = self._timestamp_to_seconds(end_time)
+                            duration = end_seconds - start_seconds
+                            
+                            if duration <= 0:
+                                print(f"❌ INVALID CUT DETECTED: Cut {i+1} '{cut.get('title', 'Unknown')}' has negative/zero duration: {duration}s")
+                                continue  # Skip this invalid cut
+                            
+                            if duration < 30:
+                                print(f"⚠️ SHORT CUT WARNING: Cut {i+1} '{cut.get('title', 'Unknown')}' has duration {duration}s (will be extended later)")
+                            
+                            valid_cuts.append(cut)
+                            print(f"✅ Cut {i+1} passed initial validation: {duration}s duration")
+                            
+                        except Exception as ts_error:
+                            print(f"❌ INVALID TIMESTAMPS: Cut {i+1} '{cut.get('title', 'Unknown')}' has malformed timestamps: {ts_error}")
+                            continue  # Skip this invalid cut
+                    
+                    cuts_data = valid_cuts
+                    print(f"🔍 Initial validation complete: {len(cuts_data)} valid cuts remaining")
+                    
+                    if not cuts_data:
+                        raise Exception("All cuts had invalid timestamps after initial validation")
+                    
                     # If we got here, parsing was successful
                     break  # Success, exit the loop
                     
@@ -677,13 +715,48 @@ class LLMCutsProcessor:
                         if isinstance(parsed_fixed, dict) and "cuts" in parsed_fixed:
                             cuts_data = parsed_fixed["cuts"]
                             print(f"✅ {model_desc} fixed JSON parsing successful (object format), {len(cuts_data)} cuts found")
-                            break  # Success after fix
                         elif isinstance(parsed_fixed, list):
                             cuts_data = parsed_fixed
                             print(f"✅ {model_desc} fixed JSON parsing successful (array format), {len(cuts_data)} cuts found")
-                            break  # Success after fix
                         else:
                             raise Exception("Invalid JSON structure after fix")
+                        
+                        # IMMEDIATE VALIDATION FOR FIXED JSON: Check for invalid timestamps
+                        print(f"🔍 Initial validation (fixed JSON): checking for invalid timestamps...")
+                        valid_cuts = []
+                        for i, cut in enumerate(cuts_data):
+                            start_time = cut.get("start", "00:00:00")
+                            end_time = cut.get("end", "00:00:00")
+                            
+                            # Check for identical start/end times (0 duration)
+                            if start_time == end_time:
+                                print(f"❌ INVALID CUT DETECTED: Cut {i+1} '{cut.get('title', 'Unknown')}' has identical start/end times: {start_time}")
+                                continue  # Skip this invalid cut
+                            
+                            # Check for valid timestamp format
+                            try:
+                                start_seconds = self._timestamp_to_seconds(start_time)
+                                end_seconds = self._timestamp_to_seconds(end_time)
+                                duration = end_seconds - start_seconds
+                                
+                                if duration <= 0:
+                                    print(f"❌ INVALID CUT DETECTED: Cut {i+1} '{cut.get('title', 'Unknown')}' has negative/zero duration: {duration}s")
+                                    continue  # Skip this invalid cut
+                                
+                                valid_cuts.append(cut)
+                                print(f"✅ Cut {i+1} passed initial validation: {duration}s duration")
+                                
+                            except Exception as ts_error:
+                                print(f"❌ INVALID TIMESTAMPS: Cut {i+1} '{cut.get('title', 'Unknown')}' has malformed timestamps: {ts_error}")
+                                continue  # Skip this invalid cut
+                        
+                        cuts_data = valid_cuts
+                        print(f"🔍 Initial validation (fixed JSON) complete: {len(cuts_data)} valid cuts remaining")
+                        
+                        if not cuts_data:
+                            raise Exception("All cuts had invalid timestamps after initial validation (fixed JSON)")
+                            
+                        break  # Success after fix
                             
                     except Exception as fix_error:
                         print(f"❌ {model_desc} JSON fix also failed: {str(fix_error)}")
@@ -785,7 +858,7 @@ class LLMCutsProcessor:
             raise Exception(f"LLM analysis failed: {str(e)}")
     
     def _build_analysis_prompt(self, transcript: Dict, video_info: Dict) -> str:
-        """Build the prompt for LLM analysis"""
+        """Build the prompt for LLM analysis using two-phase approach"""
         
         # Extract segments with timestamps
         segments_text = ""
@@ -803,85 +876,142 @@ class LLMCutsProcessor:
         duration = video_info.get('duration', 'Unknown')
         filename = os.path.basename(video_info.get('filename', 'video.mp4'))
         
-        # Build the prompt with system instructions included
-        prompt = f"""You are a video editing expert. Analyze transcripts and suggest logical cut points for video segments.
+        # Build the improved prompt with hierarchical cutting strategy
+        prompt = f"""You are a video editing expert specializing in creating cuts for content distribution and social media.
 
-Analyze this video transcript and suggest logical cut points to create thematic segments based on natural content flow.
+Analyze the COMPLETE video transcript using a HIERARCHICAL APPROACH to identify valuable content segments:
 
 VIDEO INFORMATION:
 - File: {filename}
-- Duration: {duration}
+- Total Duration: {duration}
 
-TRANSCRIPT WITH TIMESTAMPS:
+COMPLETE TRANSCRIPT WITH TIMESTAMPS:
 {segments_text}
 
-INSTRUCTIONS:
-1. GRANULAR ANALYSIS: Analyze the transcript with maximum granularity to identify ALL possible natural cut points
-2. Detect EVERY thematic shift, no matter how small - including:
-   - Major topic changes (chapters/sections)
-   - Sub-topic transitions within larger themes
-   - Individual examples or case studies
-   - Specific tips or insights
-   - Q&A segments or different speakers
-   - Practical demonstrations
-   - Conceptual explanations vs. practical applications
-   - Introduction/body/conclusion of sub-topics
-3. DO NOT group related content into large blocks - identify each distinct concept separately
-4. MINIMUM DURATION RULE: Segments should be at least 30 seconds long UNLESS they contain exceptionally complete and highly valuable standalone content
-5. Short segments (under 30 seconds) are ONLY allowed when:
-   - The content is a complete, self-contained concept or tip
-   - The information is particularly valuable or insightful
-   - It represents a distinct, finished thought or instruction
-   - It would lose meaning if combined with adjacent content
-6. PRIORITIZE GRANULARITY: When in doubt between creating one large segment or multiple smaller ones, choose multiple smaller segments if each covers a distinct concept
-7. Avoid cutting in the middle of explanations, but DO cut between different explanations, examples, or concepts
-8. Look for natural micro-transitions like "Now let's talk about...", "Another example is...", "Here's a key point...", "Moving on to..."
-9. Each segment should be immediately useful and consumable as a standalone piece
-10. Create descriptive, specific titles that clearly indicate the exact content of each segment
+ANALYSIS STRATEGY - TWO-PHASE HIERARCHICAL APPROACH:
 
-RESPONSE FORMAT - CRITICAL JSON STRUCTURE:
-You MUST respond with a JSON object containing a "cuts" array. Follow this EXACT structure:
+**CRITICAL: You MUST analyze the ENTIRE transcript from beginning to end. Cover all sections throughout the full video duration.**
+
+**PHASE 1: IDENTIFY MAJOR TOPICS/THEMES**
+First, scan the complete transcript to identify the main topics or themes discussed:
+- Where does each major topic/theme start and end?
+- What are the key ideas or subjects covered?
+- How do topics transition from one to another?
+- Are there natural thematic boundaries in the content?
+
+**PHASE 2: EXTRACT SUBTEMAS AND CUTS WITHIN EACH MAJOR TOPIC**
+For each major topic identified in Phase 1, look for subtemas and create cuts at different levels:
+
+**LEVEL 1: Viral Clips (30-60 seconds)**
+Within each major topic, find:
+- Powerful quotes or key insights
+- Controversial or surprising statements  
+- Clear, actionable tips or advice
+- Emotional or passionate moments
+- Complete thoughts that can stand alone
+
+**LEVEL 2: Educational Segments (61 seconds - 5 minutes)**
+Within each major topic, find:
+- Complete explanations of specific concepts
+- Tutorial segments with clear steps
+- Stories with beginning, middle, end
+- Q&A exchanges (question + full answer)
+- Examples or case studies
+
+**LEVEL 3: Topic Discussions (5-15 minutes)**
+Within each major topic, find:
+- Extended conversations on specific subtemas
+- Comprehensive tutorials or explanations
+- Complete interview segments about specific aspects
+- In-depth analysis or commentary on subtemas
+
+**LEVEL 4: Major Themes (15-30 minutes)**
+- Complete discussions of complex subtemas
+- Extended conversations covering multiple related points
+- Full workshops or presentations sections
+
+**LEVEL 5: Exceptional Content (30+ minutes)**
+- Only create cuts longer than 30 minutes if the content is truly exceptional
+- Must be complete, standalone discussions of major importance
+- Should cover topics that genuinely require extended time to be valuable
+- Examples: complete masterclasses, full interviews with high-value guests, comprehensive tutorials
+
+DURATION REQUIREMENTS:
+- Minimum duration: 30 seconds (NEVER shorter)
+- Maximum duration: No hard limit, but 30+ minutes only for truly exceptional content
+- Target distribution for 2+ hour videos:
+  * 35% of cuts: 30-60 seconds (viral content)
+  * 30% of cuts: 61 seconds - 5 minutes (educational)
+  * 25% of cuts: 5-15 minutes (topic discussions)
+  * 8% of cuts: 15-30 minutes (major themes)
+  * 2% of cuts: 30+ minutes (exceptional content only)
+
+CRITICAL VALIDATION RULES - FOLLOW STRICTLY:
+- Start time MUST be before end time (NEVER the same timestamp)
+- Duration MUST be minimum 30 seconds (NEVER 0 seconds or same start/end times)
+- NEVER create cuts with identical start and end times (e.g., "01:00:00" to "01:00:00")
+- NEVER create cuts with duration "00:00:00"
+- NEVER use "01:00:00" as both start and end time
+- NEVER create placeholder or dummy timestamps like "01:00:00"
+- Each cut must contain complete thoughts/topics or subtemas
+- Avoid cutting mid-sentence or mid-explanation
+- Ensure timestamps exist in the provided transcript
+- Cuts over 30 minutes must be truly exceptional and valuable content
+- ALWAYS verify your timestamps before including them in the response
+- ALL timestamps must correspond to actual content in the transcript
+
+DISTRIBUTION STRATEGY:
+- Aim for 15-30 total cuts for 2+ hour videos (more cuts for longer content)
+- Ensure cuts are spread across the ENTIRE video timeline
+- Look for valuable content in beginning, middle, and end
+- Focus on creating a variety of clip lengths based on content value
+- Prioritize content quality and completeness over specific duration targets
+- Each major topic should contribute multiple cuts at different levels
+
+RESPONSE FORMAT:
+
+You must return your response as a valid JSON object with the following structure:
 
 {{
   "cuts": [
     {{
       "id": 1,
-      "start": "00:00:00",
-      "end": "00:00:35",
-      "title": "Welcome and Introduction",
-      "description": "Opening greeting and brief overview of the session",
-      "duration": "00:00:35"
-    }},
-    {{
-      "id": 2,
-      "start": "00:00:35", 
-      "end": "00:01:20",
-      "title": "Main Topic Definition",
-      "description": "Clear definition and explanation of the primary concept",
-      "duration": "00:00:45"
-    }},
-    {{
-      "id": 3,
-      "start": "00:01:20",
-      "end": "00:02:15", 
-      "title": "First Practical Example",
-      "description": "Detailed walkthrough of first use case scenario",
-      "duration": "00:00:55"
+      "start": "HH:MM:SS",
+      "end": "HH:MM:SS", 
+      "title": "Descriptive Title",
+      "description": "Clear description of the content value and which major topic/subtema it belongs to",
+      "duration": "HH:MM:SS",
+      "type": "viral_clip" | "educational_segment" | "topic_discussion" | "major_theme" | "exceptional_content",
+      "social_media_value": "high" | "medium" | "low",
+      "parent_topic": "Name of the major topic this cut belongs to"
     }}
   ]
 }}
 
-IMPORTANT RULES: 
-- MAXIMUM GRANULARITY: Create as many meaningful segments as possible - don't group related content unnecessarily
-- Think like a viewer who wants to jump to specific concepts, examples, or tips quickly
-- Each segment should represent a distinct piece of value that someone might want to reference independently
-- CRITICAL: Segments under 30 seconds must contain exceptionally valuable, complete standalone content
-- Better to have many precise, focused segments than fewer broad ones
-- Respond ONLY with the JSON object containing the "cuts" array
-- Ensure timestamps are sequential and don't overlap
-- Calculate duration correctly for each segment
-- Use HH:MM:SS format for all times
-- Aim for comprehensive coverage - every distinct concept should have its own segment"""
+IMPORTANT: Your response must be valid JSON format only, no additional text before or after the JSON object.
+
+FINAL CHECKLIST - VERIFY EACH CUT:
+- ✓ All cuts minimum 30 seconds (no maximum for exceptional content)
+- ✓ Majority of cuts are 30 seconds to 15 minutes
+- ✓ Start < End for every timestamp (NEVER equal times)
+- ✓ NO cuts with 0 duration (e.g., "01:00:00" to "01:00:00" is FORBIDDEN)
+- ✓ Cuts distributed across full video timeline and all major topics
+- ✓ Complete thoughts, not fragments
+- ✓ 15-30 cuts total for long videos
+- ✓ Each major topic has multiple cuts at different levels
+- ✓ Longer cuts (30+ min) only for truly exceptional, valuable content
+- ✓ All timestamps exist in the provided transcript
+
+FORBIDDEN EXAMPLES (DO NOT CREATE):
+❌ "start": "01:00:00", "end": "01:00:00" (0 duration)
+❌ "start": "00:30:15", "end": "00:30:15" (0 duration)  
+❌ "duration": "00:00:00" (invalid duration)
+❌ ANY cut with identical start and end times
+❌ Placeholder timestamps like "01:00:00" when content is elsewhere
+
+REQUIRED: Every timestamp must point to actual spoken content in the transcript.
+
+Remember: Use the TWO-PHASE approach - first identify major topics, then find subtemas and create cuts at multiple levels within each topic. Think like a content creator who needs various clip lengths for different platforms, with each cut belonging to a clear thematic structure."""
         
         return prompt   
 
@@ -967,13 +1097,14 @@ IMPORTANT RULES:
         except Exception:
             pass  # Ignore cleanup errors
     
-    def _validate_and_adjust_cuts(self, cuts_array: List[Dict]) -> List[Dict]:
+    def _validate_and_adjust_cuts(self, cuts_array: List[Dict], video_info: Optional[Dict] = None) -> List[Dict]:
         """
         Validate cuts and adjust short segments that don't meet quality criteria
         Also validates timing and fixes overlaps/gaps
         
         Args:
             cuts_array: Array of cuts from LLM
+            video_info: Video metadata (optional, for getting duration)
             
         Returns:
             Validated and potentially adjusted cuts array
@@ -984,8 +1115,49 @@ IMPORTANT RULES:
             print(f"⚠️ No cuts to validate, returning empty list")
             return []
         
-        # Get video duration for timing validation
-        video_duration = getattr(self, '_current_video_duration', '01:00:00')  # Default fallback
+        # Get video duration for timing validation - try multiple sources
+        video_duration = '01:00:00'  # Default fallback
+        if video_info and 'duration' in video_info:
+            video_duration = video_info['duration']
+            print(f"📊 Using video duration from video_info: {video_duration}")
+        else:
+            print(f"⚠️ No video duration available, using fallback: {video_duration}")
+        
+        # IMMEDIATE PRE-VALIDATION: Remove any cuts with identical start/end
+        print(f"🔍 PRE-VALIDATION: Checking for invalid cuts...")
+        pre_validated_cuts = []
+        for i, cut in enumerate(cuts_array):
+            start_time = cut.get("start", "00:00:00")
+            end_time = cut.get("end", "00:00:00")
+            
+            # Check for identical start/end times
+            if start_time == end_time:
+                print(f"❌ PRE-VALIDATION REJECTED: Cut {i+1} '{cut.get('title', 'Unknown')}' has identical start/end: {start_time}")
+                continue
+            
+            # Check for valid duration calculation
+            try:
+                start_seconds = self._timestamp_to_seconds(start_time)
+                end_seconds = self._timestamp_to_seconds(end_time)
+                duration = end_seconds - start_seconds
+                
+                if duration <= 0:
+                    print(f"❌ PRE-VALIDATION REJECTED: Cut {i+1} '{cut.get('title', 'Unknown')}' has zero/negative duration: {duration}s")
+                    continue
+                
+                pre_validated_cuts.append(cut)
+                print(f"✅ PRE-VALIDATION PASSED: Cut {i+1} has {duration}s duration")
+                
+            except Exception as e:
+                print(f"❌ PRE-VALIDATION REJECTED: Cut {i+1} '{cut.get('title', 'Unknown')}' has invalid timestamps: {e}")
+                continue
+        
+        if not pre_validated_cuts:
+            print(f"❌ All cuts failed pre-validation!")
+            return []
+        
+        print(f"🔍 PRE-VALIDATION complete: {len(cuts_array)} -> {len(pre_validated_cuts)} cuts passed")
+        cuts_array = pre_validated_cuts
         
         validated_cuts = []
         short_segments_keywords = [
@@ -1004,19 +1176,10 @@ IMPORTANT RULES:
             try:
                 validated_cut = self._validate_cut_timing(current_cut, video_duration, previous_end)
             except Exception as e:
-                print(f"⚠️ Error validating cut timing: {str(e)}")
-                # Create a safe default cut
-                validated_cut = {
-                    "id": current_cut.get("id", i + 1),
-                    "start": previous_end,
-                    "end": self._seconds_to_timestamp(
-                        min(self._timestamp_to_seconds(previous_end) + 30, 
-                            self._timestamp_to_seconds(video_duration))
-                    ),
-                    "title": current_cut.get("title", f"Segment {i + 1}"),
-                    "description": current_cut.get("description", f"Video segment {i + 1}"),
-                    "duration": "00:00:30"
-                }
+                print(f"⚠️ Cut {i+1} has critical timing issues, skipping: {str(e)}")
+                # Skip this cut entirely - don't try to fix critically broken cuts
+                i += 1
+                continue
             
             # Calculate duration in seconds for quality check
             start_seconds = self._timestamp_to_seconds(validated_cut["start"])
@@ -1047,12 +1210,19 @@ IMPORTANT RULES:
                     if i + 1 < len(cuts_array):
                         next_cut = cuts_array[i + 1]
                         # Validate next cut timing first
-                        next_validated = self._validate_cut_timing(next_cut, video_duration, validated_cut["end"])
-                        merged_cut = self._merge_cuts(validated_cut, next_validated)
-                        print(f"🔗 Merged with next segment: '{merged_cut['title']}'")
-                        validated_cuts.append(merged_cut)
-                        previous_end = merged_cut["end"]
-                        i += 2  # Skip next cut as it's been merged
+                        try:
+                            next_validated = self._validate_cut_timing(next_cut, video_duration, validated_cut["end"])
+                            merged_cut = self._merge_cuts(validated_cut, next_validated)
+                            print(f"🔗 Merged with next segment: '{merged_cut['title']}'")
+                            validated_cuts.append(merged_cut)
+                            previous_end = merged_cut["end"]
+                            i += 2  # Skip next cut as it's been merged
+                        except Exception as merge_e:
+                            print(f"⚠️ Failed to merge cuts: {str(merge_e)}")
+                            # Just keep the current cut without merging
+                            validated_cuts.append(validated_cut)
+                            previous_end = validated_cut["end"]
+                            i += 1
                     else:
                         # Last segment, keep it even if short
                         print(f"📝 Keeping last segment even if short")
@@ -1079,10 +1249,43 @@ IMPORTANT RULES:
         Returns:
             Merged cut
         """
-        # Calculate new duration
+        # Calculate new duration with validation
         start_seconds = self._timestamp_to_seconds(cut1["start"])
         end_seconds = self._timestamp_to_seconds(cut2["end"])
         duration_seconds = end_seconds - start_seconds
+        
+        # Validate the merge will create a valid cut
+        if duration_seconds <= 0:
+            print(f"⚠️ MERGE ERROR: Would create invalid cut with duration {duration_seconds}s")
+            # Return the longer of the two cuts instead of merging
+            cut1_duration = self._timestamp_to_seconds(cut1.get("end", "00:00:00")) - self._timestamp_to_seconds(cut1.get("start", "00:00:00"))
+            cut2_duration = self._timestamp_to_seconds(cut2.get("end", "00:00:00")) - self._timestamp_to_seconds(cut2.get("start", "00:00:00"))
+            
+            if cut1_duration >= cut2_duration:
+                print(f"🔄 Returning cut1 instead of invalid merge")
+                return cut1
+            else:
+                print(f"🔄 Returning cut2 instead of invalid merge")
+                return cut2
+        
+        # Validate timestamps are reasonable
+        if cut1["start"] == cut1["end"] or cut2["start"] == cut2["end"]:
+            print(f"⚠️ MERGE ERROR: One of the cuts has identical start/end times")
+            # Return the valid cut if one exists
+            if cut1["start"] != cut1["end"]:
+                return cut1
+            elif cut2["start"] != cut2["end"]:
+                return cut2
+            else:
+                # Both are invalid, create a safe default
+                return {
+                    "id": cut1["id"],
+                    "start": "00:00:00",
+                    "end": "00:00:30",
+                    "title": f"Safe Merge: {cut1.get('title', 'Cut')}",
+                    "description": f"Safe merge due to invalid timestamps: {cut1.get('description', '')}",
+                    "duration": "00:00:30"
+                }
         
         merged_cut = {
             "id": cut1["id"],
@@ -1093,6 +1296,7 @@ IMPORTANT RULES:
             "duration": self._seconds_to_timestamp(duration_seconds)
         }
         
+        print(f"✅ Successfully merged cuts: {duration_seconds}s duration")
         return merged_cut
     
     def _fix_truncated_json(self, response_text: str) -> str:
@@ -1190,7 +1394,7 @@ IMPORTANT RULES:
                     end_time = match.group(3) 
                     title = match.group(4)
                     description = match.group(5)
-                    duration = match.group(6) if match.group(6) else None;
+                    duration = match.group(6) if match.group(6) else None
                     
                     # Calculate duration if not provided
                     if not duration:
@@ -1305,21 +1509,53 @@ IMPORTANT RULES:
                 start_seconds = previous_end_seconds
                 start_time = self._seconds_to_timestamp(start_seconds)
             
-            # 2. Ensure end is after start
+            # 2. Ensure end is after start with minimum 30 seconds
             if end_seconds <= start_seconds:
-                print(f"⚠️ Cut end is not after start, adjusting...")
+                print(f"⚠️ INVALID CUT DETECTED: Cut '{cut.get('title', 'Unknown')}' has start={start_time}, end={end_time}")
+                print(f"⚠️ Start seconds: {start_seconds}, End seconds: {end_seconds}")
+                print(f"⚠️ CRITICAL: This cut would have {end_seconds - start_seconds} seconds duration!")
+                
+                # This is a critical error - we cannot fix a cut where end <= start reliably
+                # Instead of trying to force a fix, we should reject this cut entirely
+                raise Exception(f"Critical timestamp error: Cut has end time ({end_time}) <= start time ({start_time}). This cut should be rejected.")
+            
+            # 3. Ensure minimum duration of 30 seconds
+            duration_seconds = end_seconds - start_seconds
+            if duration_seconds < 30:
+                print(f"⚠️ DURATION TOO SHORT: Cut '{cut.get('title', 'Unknown')}' has duration {duration_seconds}s")
+                print(f"⚠️ Extending to minimum 30 seconds...")
                 # Give it at least 30 seconds or until video end
                 end_seconds = min(start_seconds + 30, video_duration_seconds)
                 end_time = self._seconds_to_timestamp(end_seconds)
+                duration_seconds = end_seconds - start_seconds
+                print(f"✅ Extended duration to: {duration_seconds}s")
             
-            # 3. Ensure cut doesn't exceed video duration
+            # 4. Ensure cut doesn't exceed video duration
             if end_seconds > video_duration_seconds:
                 print(f"⚠️ Cut extends beyond video duration, truncating...")
                 end_seconds = video_duration_seconds
                 end_time = self._seconds_to_timestamp(end_seconds)
             
-            # 4. Recalculate duration
+            # 4. Final validation check
             duration_seconds = end_seconds - start_seconds
+            
+            if duration_seconds < 30:
+                print(f"⚠️ DURATION TOO SHORT: Cut '{cut.get('title', 'Unknown')}' has duration {duration_seconds}s")
+                print(f"⚠️ Extending to minimum 30 seconds...")
+                end_seconds = min(start_seconds + 30, video_duration_seconds)
+                end_time = self._seconds_to_timestamp(end_seconds)
+                duration_seconds = end_seconds - start_seconds
+                print(f"✅ Final duration: {duration_seconds}s")
+            
+            if duration_seconds == 0:
+                print(f"❌ CRITICAL ERROR: Cut still has 0 duration after validation!")
+                print(f"❌ Cut details: start={start_time}, end={end_time}")
+                # Force a valid cut
+                end_seconds = min(start_seconds + 30, video_duration_seconds)
+                end_time = self._seconds_to_timestamp(end_seconds)
+                duration_seconds = end_seconds - start_seconds
+                print(f"✅ FORCE-FIXED: duration now {duration_seconds}s")
+            
             duration_time = self._seconds_to_timestamp(duration_seconds)
             
             # Update cut with validated times
@@ -1404,7 +1640,7 @@ curl -X POST "https://api.openai.com/v1/chat/completions" \\
             
             # Also create a simplified version without the API key for sharing
             safe_curl_file = os.path.join(debug_dir, f"debug_curl_safe_{model_name}_{timestamp}.txt")
-            safe_curl_command = curl_command.replace(self.api_key, "YOUR_API_KEY_HERE")
+            safe_curl_command = curl_command.replace(self.api_key or "API_KEY", "YOUR_API_KEY_HERE")
             
             with open(safe_curl_file, 'w', encoding='utf-8') as f:
                 f.write(safe_curl_command)
