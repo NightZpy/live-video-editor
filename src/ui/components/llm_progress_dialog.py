@@ -28,7 +28,7 @@ PROGRESS_PHASES = {
 class LLMProgressDialog(ctk.CTkToplevel):
     """Progress dialog for LLM processing with real-time updates"""
     
-    def __init__(self, parent, video_path: str, video_info: dict, api_key: str, completion_callback: Callable):
+    def __init__(self, parent, video_path: str, video_info: dict, api_key: Optional[str], completion_callback: Callable):
         super().__init__(parent)
         
         # Store parameters
@@ -497,7 +497,7 @@ class LLMProgressDialog(ctk.CTkToplevel):
 
 
 # Convenience function for easy usage
-def show_llm_progress_dialog(parent, video_path: str, video_info: dict, api_key: str, completion_callback: Callable):
+def show_llm_progress_dialog(parent, video_path: str, video_info: dict, api_key: Optional[str], completion_callback: Callable):
     """
     Show LLM progress dialog
     
