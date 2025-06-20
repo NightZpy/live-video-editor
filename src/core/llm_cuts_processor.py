@@ -50,30 +50,35 @@ class LLMCutsProcessor:
             print(f"🔑 Using API key from environment variable")
         
         # Load model configuration from environment variables with defaults
-        self.default_model = os.getenv('DEFAULT_MODEL', 'gpt-4.1')
+        self.default_model = os.getenv('DEFAULT_MODEL', 'o4-mini')
         self.max_completion_tokens = int(os.getenv('MAX_COMPLETION_TOKENS', '8192'))
+        self.reasoning_effort = os.getenv('REASONING_EFFORT', 'high')  # low, medium, high - using high for better precision
         
-        # Model configuration with fallback strategy
+        # Model configuration with fallback strategy - optimized for precise cut analysis
         self.models_to_try = [
             {
-                "name": self.default_model, 
-                "description": f"{self.default_model} (primary, from config)", 
-                "max_completion_tokens": self.max_completion_tokens
+                "name": "o4-mini", 
+                "description": "o4-mini (best reasoning model for precise cuts)", 
+                "reasoning_model": True,
+                "effort": self.reasoning_effort
+            },
+            {
+                "name": self.default_model if self.default_model != "o4-mini" else "gpt-4o", 
+                "description": f"{self.default_model if self.default_model != 'o4-mini' else 'gpt-4o'} (fallback from config)", 
+                "max_completion_tokens": self.max_completion_tokens,
+                "reasoning_model": False
+            },
+            {
+                "name": "gpt-4o", 
+                "description": "GPT-4o (high quality, good context understanding)", 
+                "max_completion_tokens": self.max_completion_tokens,
+                "reasoning_model": False
             },
             {
                 "name": "gpt-4o-mini", 
                 "description": "GPT-4o Mini (fallback, faster, cost-effective)", 
-                "max_completion_tokens": self.max_completion_tokens
-            },
-            {
-                "name": "gpt-4.1-mini", 
-                "description": "GPT-4.1 Mini (fallback, balanced performance)", 
-                "max_completion_tokens": self.max_completion_tokens
-            },
-            {
-                "name": "gpt-4.1", 
-                "description": "GPT-4.1 (final fallback, most capable)", 
-                "max_completion_tokens": self.max_completion_tokens
+                "max_completion_tokens": self.max_completion_tokens,
+                "reasoning_model": False
             }
         ]
         
@@ -88,7 +93,10 @@ class LLMCutsProcessor:
         
         print(f"🤖 Configured {len(self.models_to_try)} LLM models:")
         for i, model in enumerate(self.models_to_try):
-            print(f"  {i+1}. {model['description']} ({model['max_completion_tokens']} tokens)")
+            if model.get("reasoning_model", False):
+                print(f"  {i+1}. {model['description']} (reasoning model)")
+            else:
+                print(f"  {i+1}. {model['description']} ({model['max_completion_tokens']} tokens)")
         
         # Initialize OpenAI client with error handling
         try:
@@ -111,7 +119,8 @@ class LLMCutsProcessor:
             print(f"❌ OpenAI version: {openai.__version__}")
             # Try alternative initialization without any optional parameters
             try:
-                os.environ['OPENAI_API_KEY'] = api_key
+                if api_key:
+                    os.environ['OPENAI_API_KEY'] = str(api_key)
                 self.openai_client = openai.OpenAI()
                 print(f"✅ OpenAI client initialized with environment variable")
             except Exception as e2:
@@ -133,6 +142,20 @@ class LLMCutsProcessor:
         # Initialize data cache manager
         self.cache_manager = DataCacheManager()
         print(f"💾 Data cache manager initialized")
+        
+        # Quality and precision settings
+        self.prefer_reasoning_models = os.getenv('PREFER_REASONING_MODELS', 'true').lower() == 'true'
+        self.enable_advanced_boundary_detection = os.getenv('ENABLE_ADVANCED_BOUNDARY_DETECTION', 'true').lower() == 'true'
+        
+        print(f"⚙️ Quality settings:")
+        print(f"   - Prefer reasoning models: {self.prefer_reasoning_models}")
+        print(f"   - Advanced boundary detection: {self.enable_advanced_boundary_detection}")
+        print(f"   - Reasoning effort: {self.reasoning_effort}")
+        
+        # Sort models to prioritize reasoning models if enabled
+        if self.prefer_reasoning_models:
+            self.models_to_try.sort(key=lambda x: (not x.get("reasoning_model", False), x["name"]))
+            print(f"🧠 Prioritizing reasoning models for better cut precision")
         
     def set_progress_callback(self, callback: Callable):
         """Set callback function for progress updates"""
@@ -596,39 +619,106 @@ class LLMCutsProcessor:
                 try:
                     print(f"🤖 Trying {model_desc}...")
                     
-                    # Prepare request parameters using the EXACT format from the working example
-                    request_params = {
-                        "model": model_name,
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": [
-                                    {
-                                        "type": "text",
-                                        "text": prompt
-                                    }
-                                ]
-                            }
-                        ],
-                        "response_format": {"type": "json_object"},
-                        "temperature": 1,
-                        "max_completion_tokens": 8192,
-                        "top_p": 1,
-                        "frequency_penalty": 0,
-                        "presence_penalty": 0
-                    }
+                    # Adjust parameters based on model type
+                    is_reasoning_model = model_info.get("reasoning_model", False)
+                    model_effort = model_info.get("effort", "medium")
                     
-                    # Generate curl command for debugging
-                    print(f"🐛 About to generate debug curl for model: {model_name}")
-                    self._generate_debug_curl(request_params, model_name)
-                    print(f"🐛 Debug curl generation completed for model: {model_name}")
+                    if model_name == "o4-mini":
+                        # For o4-mini, use responses.create with specific format (no max_completion_tokens)
+                        print(f"🧠 Using o4-mini with effort: {model_effort}")
+                        
+                        # Use the EXACT format from the example - reasoning models don't use completion tokens
+                        response = self.openai_client.responses.create(
+                            model="o4-mini",
+                            input=[
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "type": "input_text",
+                                            "text": prompt
+                                        }
+                                    ]
+                                }
+                            ],
+                            text={
+                                "format": {
+                                    "type": "json_object"
+                                }
+                            },
+                            reasoning={
+                                "effort": model_effort,
+                                "summary": None 
+                            },
+                            store=False
+                        )
+                        
+                        # Extract response content from o4-mini format
+                        try:
+                            # For o4-mini responses, convert to string and parse later
+                            response_content = str(response)
+                            print(f"✅ Extracted o4-mini response as string")
+                            
+                            # Try to extract JSON from the string response
+                            import re
+                            json_match = re.search(r'\{.*\}', response_content, re.DOTALL)
+                            if json_match:
+                                response_content = json_match.group(0)
+                                print(f"✅ Extracted JSON from o4-mini response")
+                                
+                        except Exception as extract_error:
+                            print(f"⚠️ Error extracting o4-mini response: {extract_error}")
+                            response_content = str(response)
+                        
+                    elif is_reasoning_model:
+                        # For other reasoning models (o1-preview, o1-mini), use simpler parameters
+                        request_params = {
+                            "model": model_name,
+                            "messages": [
+                                {
+                                    "role": "user", 
+                                    "content": prompt
+                                }
+                            ]
+                        }
+                        print(f"🧠 Using reasoning model parameters for {model_name}")
+                        response = self.openai_client.chat.completions.create(**request_params)
+                        response_content = response.choices[0].message.content
+                        
+                    else:
+                        # For standard models, use full parameter set
+                        request_params = {
+                            "model": model_name,
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "type": "text",
+                                            "text": prompt
+                                        }
+                                    ]
+                                }
+                            ],
+                            "response_format": {"type": "json_object"},
+                            "temperature": 0.3,  # Lower temperature for more consistent cuts
+                            "max_completion_tokens": 8192,
+                            "top_p": 1,
+                            "frequency_penalty": 0,
+                            "presence_penalty": 0
+                        }
+                        print(f"🎛️ Using standard model parameters for {model_name}")
+                        response = self.openai_client.chat.completions.create(**request_params)
+                        response_content = response.choices[0].message.content
                     
-                    response = self.openai_client.chat.completions.create(**request_params)
+                    # Skip debug curl for o4-mini since it uses different API
+                    if model_name != "o4-mini":
+                        # Generate curl command for debugging
+                        print(f"🐛 About to generate debug curl for model: {model_name}")
+                        self._generate_debug_curl(request_params, model_name)
+                        print(f"🐛 Debug curl generation completed for model: {model_name}")
                     
                     print(f"✅ {model_desc} response received successfully")
-                    
-                    # Parse the response immediately to check if it's valid
-                    response_content = response.choices[0].message.content
                     print(f"🤖 Raw LLM response from {model_name}:\n{'-'*50}\n{response_content[:500]}{'...' if len(response_content) > 500 else ''}\n{'-'*50}")
                     
                     if not response_content:
@@ -708,7 +798,7 @@ class LLMCutsProcessor:
                     last_error = json_error
                     # Try to fix and parse again for this model before giving up
                     try:
-                        fixed_response = self._fix_truncated_json(response_content if 'response_content' in locals() else "")
+                        fixed_response = self._fix_truncated_json(str(response_content) if response_content else "")
                         parsed_fixed = json.loads(fixed_response)
                         
                         # Handle both formats
@@ -775,7 +865,7 @@ class LLMCutsProcessor:
                 # Try regex extraction as last resort if we have any response
                 if 'response_content' in locals() and response_content:
                     try:
-                        cuts_data = self._extract_valid_cuts_regex(response_content)
+                        cuts_data = self._extract_valid_cuts_regex(str(response_content))
                         if cuts_data:
                             print(f"✅ Regex extraction successful, {len(cuts_data)} cuts found")
                         else:
@@ -812,7 +902,10 @@ class LLMCutsProcessor:
                 else:
                     raise Exception("LLM response is not a valid cuts array")
                 
-            # Validate each cut has required fields
+            # Advanced validation with transcript segments for better boundaries
+            transcript_segments = transcript.get('segments', [])
+            
+            # Validate each cut has required fields and apply quality validation
             validated_cuts = []
             for i, cut in enumerate(cuts_data):
                 required_fields = ["start", "end", "title", "description"]
@@ -840,7 +933,13 @@ class LLMCutsProcessor:
                     duration_seconds = max(0, end_seconds - start_seconds)
                     cut["duration"] = self._seconds_to_timestamp(duration_seconds)
                 
-                validated_cuts.append(cut)
+                # Apply advanced quality validation for natural boundaries
+                if transcript_segments and self.enable_advanced_boundary_detection:
+                    quality_validated_cut = self._validate_cut_quality(cut, transcript_segments)
+                    validated_cuts.append(quality_validated_cut)
+                else:
+                    validated_cuts.append(cut)
+                
                 print(f"✅ Cut {i+1} validation passed: {cut.get('title', 'No title')}")
             
             print(f"✅ All cuts validated successfully: {len(validated_cuts)} segments")
@@ -858,7 +957,7 @@ class LLMCutsProcessor:
             raise Exception(f"LLM analysis failed: {str(e)}")
     
     def _build_analysis_prompt(self, transcript: Dict, video_info: Dict) -> str:
-        """Build the prompt for LLM analysis using two-phase approach"""
+        """Build the enhanced prompt for precise cut analysis that prevents abrupt cuts"""
         
         # Extract segments with timestamps
         segments_text = ""
@@ -876,101 +975,86 @@ class LLMCutsProcessor:
         duration = video_info.get('duration', 'Unknown')
         filename = os.path.basename(video_info.get('filename', 'video.mp4'))
         
-        # Build the improved prompt with hierarchical cutting strategy
-        prompt = f"""You are a video editing expert specializing in creating cuts for content distribution and social media.
+        # TWO-PHASE SEPARATE ANALYSIS: Content first, then timestamps
+        prompt = f"""You are a professional video content analyst and editor. Your task is to perform a STRICT two-phase analysis where you completely separate content analysis from timestamp analysis.
 
-Analyze the COMPLETE video transcript using a HIERARCHICAL APPROACH to identify valuable content segments:
-
-VIDEO INFORMATION:
+🎬 VIDEO INFORMATION:
 - File: {filename}
-- Total Duration: {duration}
+- Duration: {duration}
 
-COMPLETE TRANSCRIPT WITH TIMESTAMPS:
+📝 TRANSCRIPT (timestamps will be used LATER):
 {segments_text}
 
-ANALYSIS STRATEGY - TWO-PHASE HIERARCHICAL APPROACH:
+🧠 **PHASE 1: PURE CONTENT ANALYSIS (IGNORE TIMESTAMPS)**
 
-**CRITICAL: You MUST analyze the ENTIRE transcript from beginning to end. Cover all sections throughout the full video duration.**
+**Step 1.1: Read the Full Text**
+- Read ONLY the spoken words/content, completely ignoring all timestamps
+- Treat this as if you're reading a book or article transcript
+- Focus solely on ideas, topics, themes, and concepts discussed
 
-**PHASE 1: IDENTIFY MAJOR TOPICS/THEMES**
-First, scan the complete transcript to identify the main topics or themes discussed:
-- Where does each major topic/theme start and end?
-- What are the key ideas or subjects covered?
-- How do topics transition from one to another?
-- Are there natural thematic boundaries in the content?
+**Step 1.2: Identify All Major Topics**
+Map out EVERY major topic discussed in the video:
+- **Main themes** (topics that span several minutes of discussion)
+- **Sub-topics** within each main theme  
+- **Key stories, examples, anecdotes** (complete narratives)
+- **Standalone insights** (important quotes, tips, principles)
+- **Technical explanations** (step-by-step processes)
+- **Philosophical discussions** (deeper thoughts, reflections)
 
-**PHASE 2: EXTRACT SUBTEMAS AND CUTS WITHIN EACH MAJOR TOPIC**
-For each major topic identified in Phase 1, look for subtemas and create cuts at different levels:
+**Step 1.3: Content Hierarchy Creation**
+Organize the content into:
+- **MAJOR DISCUSSIONS** (15+ minutes of related content)
+- **TOPIC SEGMENTS** (5-15 minutes of focused discussion)  
+- **CONCEPT EXPLANATIONS** (2-8 minutes of specific explanations)
+- **KEY MOMENTS** (30 seconds - 3 minutes of high-value content)
 
-**LEVEL 1: Viral Clips (30-60 seconds)**
-Within each major topic, find:
-- Powerful quotes or key insights
-- Controversial or surprising statements  
-- Clear, actionable tips or advice
-- Emotional or passionate moments
-- Complete thoughts that can stand alone
+**CRITICAL**: Do this analysis without looking at any timestamps. Focus only on what is actually discussed.
 
-**LEVEL 2: Educational Segments (61 seconds - 5 minutes)**
-Within each major topic, find:
-- Complete explanations of specific concepts
-- Tutorial segments with clear steps
-- Stories with beginning, middle, end
-- Q&A exchanges (question + full answer)
-- Examples or case studies
+🎯 **PHASE 2: TIMESTAMP MAPPING (AFTER CONTENT ANALYSIS)**
 
-**LEVEL 3: Topic Discussions (5-15 minutes)**
-Within each major topic, find:
-- Extended conversations on specific subtemas
-- Comprehensive tutorials or explanations
-- Complete interview segments about specific aspects
-- In-depth analysis or commentary on subtemas
+**Step 2.1: Map Topics to Timestamps**
+NOW, and only now, use the timestamps to find where each identified topic occurs:
+- Locate the START of each major topic/discussion
+- Find the natural END of each topic/discussion  
+- Ensure you capture COMPLETE ideas from beginning to end
+- Look for natural conversation boundaries
 
-**LEVEL 4: Major Themes (15-30 minutes)**
-- Complete discussions of complex subtemas
-- Extended conversations covering multiple related points
-- Full workshops or presentations sections
+**Step 2.2: Create Comprehensive Cuts**
+For each topic identified in Phase 1, create cuts that capture:
+- **COMPLETE TOPICS**: Full discussions from introduction to conclusion
+- **COMPLETE EXPLANATIONS**: Entire explanations including setup, examples, and conclusions
+- **COMPLETE STORIES**: Full anecdotes from beginning to end
+- **OVERLAPPING EXTRACTS**: Shorter cuts that highlight key moments within longer topics
 
-**LEVEL 5: Exceptional Content (30+ minutes)**
-- Only create cuts longer than 30 minutes if the content is truly exceptional
-- Must be complete, standalone discussions of major importance
-- Should cover topics that genuinely require extended time to be valuable
-- Examples: complete masterclasses, full interviews with high-value guests, comprehensive tutorials
+**Step 2.3: Duration Guidelines by Content Type**
+- **Educational/Deep Discussions**: 8-45 minutes (whatever the natural topic length requires)
+- **Complete Explanations**: 3-15 minutes (full explanations with context)
+- **Stories/Examples**: 2-8 minutes (complete narratives)
+- **Key Insights/Tips**: 1-4 minutes (complete thoughts with context)
+- **Viral Moments**: 30-90 seconds (punchy highlights from within longer topics)
 
-DURATION REQUIREMENTS:
-- Minimum duration: 30 seconds (NEVER shorter)
-- Maximum duration: No hard limit, but 30+ minutes only for truly exceptional content
-- Target distribution for 2+ hour videos:
-  * 35% of cuts: 30-60 seconds (viral content)
-  * 30% of cuts: 61 seconds - 5 minutes (educational)
-  * 25% of cuts: 5-15 minutes (topic discussions)
-  * 8% of cuts: 15-30 minutes (major themes)
-  * 2% of cuts: 30+ minutes (exceptional content only)
+🚨 **CRITICAL VALIDATION RULES**:
 
-CRITICAL VALIDATION RULES - FOLLOW STRICTLY:
-- Start time MUST be before end time (NEVER the same timestamp)
-- Duration MUST be minimum 30 seconds (NEVER 0 seconds or same start/end times)
-- NEVER create cuts with identical start and end times (e.g., "01:00:00" to "01:00:00")
-- NEVER create cuts with duration "00:00:00"
-- NEVER use "01:00:00" as both start and end time
-- NEVER create placeholder or dummy timestamps like "01:00:00"
-- Each cut must contain complete thoughts/topics or subtemas
-- Avoid cutting mid-sentence or mid-explanation
-- Ensure timestamps exist in the provided transcript
-- Cuts over 30 minutes must be truly exceptional and valuable content
-- ALWAYS verify your timestamps before including them in the response
-- ALL timestamps must correspond to actual content in the transcript
+**Content Completeness**:
+- NEVER cut in the middle of an explanation
+- NEVER start a cut mid-topic without proper introduction
+- NEVER end a cut before the speaker concludes their point
+- ALWAYS include enough context for standalone understanding
 
-DISTRIBUTION STRATEGY:
-- Aim for 15-30 total cuts for 2+ hour videos (more cuts for longer content)
-- Ensure cuts are spread across the ENTIRE video timeline
-- Look for valuable content in beginning, middle, and end
-- Focus on creating a variety of clip lengths based on content value
-- Prioritize content quality and completeness over specific duration targets
-- Each major topic should contribute multiple cuts at different levels
+**Title/Description Accuracy**:
+- Titles must describe EXACTLY what happens in those specific timestamps
+- Descriptions must match ONLY the content within that time range
+- NO mixing information from different parts of the video
+- Verify accuracy by re-reading the transcript segment
 
-RESPONSE FORMAT:
+**Natural Boundaries**:
+- Start cuts at topic introductions or natural conversation starts
+- End cuts at topic conclusions or natural transition points
+- Respect speech patterns and breathing points
+- Ensure smooth entry and exit points
 
-You must return your response as a valid JSON object with the following structure:
+🎯 **RESPONSE FORMAT**:
+Return a JSON object with this EXACT structure:
 
 {{
   "cuts": [
@@ -978,41 +1062,23 @@ You must return your response as a valid JSON object with the following structur
       "id": 1,
       "start": "HH:MM:SS",
       "end": "HH:MM:SS", 
-      "title": "Descriptive Title",
-      "description": "Clear description of the content value and which major topic/subtema it belongs to",
+      "title": "Exact description of what is discussed in this time range",
+      "description": "Detailed description of ONLY the content within these timestamps",
       "duration": "HH:MM:SS",
-      "type": "viral_clip" | "educational_segment" | "topic_discussion" | "major_theme" | "exceptional_content",
-      "social_media_value": "high" | "medium" | "low",
-      "parent_topic": "Name of the major topic this cut belongs to"
+      "content_type": "major_discussion|topic_segment|concept_explanation|key_moment|viral_highlight"
     }}
   ]
 }}
 
-IMPORTANT: Your response must be valid JSON format only, no additional text before or after the JSON object.
+🚨 **ABSOLUTE REQUIREMENTS**:
+- Generate cuts for ALL substantial content identified in Phase 1
+- Prioritize COMPLETE topics over partial fragments  
+- Create overlapping cuts when beneficial (long educational + short viral from same content)
+- Ensure ZERO content gaps - every valuable topic should have a corresponding cut
+- For a 2+ hour video, expect 15-30+ cuts covering all major content
+- Focus on content completeness over artificial duration limits
 
-FINAL CHECKLIST - VERIFY EACH CUT:
-- ✓ All cuts minimum 30 seconds (no maximum for exceptional content)
-- ✓ Majority of cuts are 30 seconds to 15 minutes
-- ✓ Start < End for every timestamp (NEVER equal times)
-- ✓ NO cuts with 0 duration (e.g., "01:00:00" to "01:00:00" is FORBIDDEN)
-- ✓ Cuts distributed across full video timeline and all major topics
-- ✓ Complete thoughts, not fragments
-- ✓ 15-30 cuts total for long videos
-- ✓ Each major topic has multiple cuts at different levels
-- ✓ Longer cuts (30+ min) only for truly exceptional, valuable content
-- ✓ All timestamps exist in the provided transcript
-
-FORBIDDEN EXAMPLES (DO NOT CREATE):
-❌ "start": "01:00:00", "end": "01:00:00" (0 duration)
-❌ "start": "00:30:15", "end": "00:30:15" (0 duration)  
-❌ "duration": "00:00:00" (invalid duration)
-❌ ANY cut with identical start and end times
-❌ Placeholder timestamps like "01:00:00" when content is elsewhere
-
-REQUIRED: Every timestamp must point to actual spoken content in the transcript.
-
-Remember: Use the TWO-PHASE approach - first identify major topics, then find subtemas and create cuts at multiple levels within each topic. Think like a content creator who needs various clip lengths for different platforms, with each cut belonging to a clear thematic structure."""
-        
+Remember: Your goal is to extract EVERY valuable piece of content, ensuring nothing important is missed while maintaining complete accuracy between timestamps and descriptions."""        
         return prompt   
 
     def _build_final_json(self, cuts_array: List[Dict], video_info: Dict, video_path: str) -> Dict:
@@ -1581,6 +1647,119 @@ Remember: Use the TWO-PHASE approach - first identify major topics, then find su
                 "duration": "00:00:30"
             }
 
+    def _validate_cut_quality(self, cut: Dict, transcript_segments: List[Dict]) -> Dict:
+        """
+        Advanced validation to ensure cuts respect natural speech boundaries
+        
+        Args:
+            cut: Cut dictionary to validate
+            transcript_segments: List of transcript segments with timestamps
+            
+        Returns:
+            Validated and potentially adjusted cut
+        """
+        print(f"🔍 Advanced quality validation for: '{cut.get('title', 'Unknown')}'")
+        
+        start_seconds = self._timestamp_to_seconds(cut["start"])
+        end_seconds = self._timestamp_to_seconds(cut["end"])
+        
+        # Find segments that overlap with this cut
+        relevant_segments = []
+        for segment in transcript_segments:
+            seg_start = segment.get('start', 0)
+            seg_end = segment.get('end', 0)
+            
+            # Check if segment overlaps with cut timeframe
+            if not (seg_end < start_seconds or seg_start > end_seconds):
+                relevant_segments.append(segment)
+        
+        if not relevant_segments:
+            print(f"⚠️ No transcript segments found for cut timeframe")
+            return cut
+        
+        # Analyze first and last segments for natural boundaries
+        first_segment = relevant_segments[0]
+        last_segment = relevant_segments[-1]
+        
+        # Check start boundary
+        adjusted_cut = cut.copy()
+        start_text = first_segment.get('text', '').strip()
+        
+        # Look for natural start indicators
+        natural_starts = [
+            'so ', 'now ', 'alright ', 'okay ', 'well ', 'and ', 'but ',
+            'the thing is', 'what i want to', 'let me', 'i think', 'you know'
+        ]
+        
+        if start_text.lower().startswith(tuple(natural_starts)):
+            print(f"✅ Natural start boundary detected: '{start_text[:30]}...'")
+        else:
+            # Try to find a better start point within 10 seconds
+            better_start = self._find_better_start_boundary(start_seconds, relevant_segments)
+            if better_start != start_seconds:
+                adjusted_cut["start"] = self._seconds_to_timestamp(better_start)
+                print(f"🔧 Adjusted start time for better boundary: {adjusted_cut['start']}")
+        
+        # Check end boundary
+        end_text = last_segment.get('text', '').strip()
+        
+        # Look for natural end indicators
+        natural_ends = [
+            '.', '?', '!', 'right?', 'okay?', 'you know?', 'exactly', 'perfect',
+            'that\'s it', 'got it', 'makes sense', 'absolutely', 'definitely'
+        ]
+        
+        has_natural_end = any(end_text.lower().endswith(ending) for ending in natural_ends)
+        
+        if has_natural_end:
+            print(f"✅ Natural end boundary detected: '...{end_text[-30:]}'")
+        else:
+            # Try to find a better end point within 10 seconds
+            better_end = self._find_better_end_boundary(end_seconds, relevant_segments)
+            if better_end != end_seconds:
+                adjusted_cut["end"] = self._seconds_to_timestamp(better_end)
+                print(f"🔧 Adjusted end time for better boundary: {adjusted_cut['end']}")
+        
+        # Recalculate duration
+        new_start = self._timestamp_to_seconds(adjusted_cut["start"])
+        new_end = self._timestamp_to_seconds(adjusted_cut["end"])
+        new_duration = new_end - new_start
+        adjusted_cut["duration"] = self._seconds_to_timestamp(new_duration)
+        
+        print(f"✅ Quality validation complete: {new_duration:.1f}s duration")
+        return adjusted_cut
+    
+    def _find_better_start_boundary(self, current_start: float, segments: List[Dict]) -> float:
+        """Find a better start boundary within nearby segments"""
+        search_window = 10  # seconds
+        
+        for segment in segments:
+            seg_start = segment.get('start', 0)
+            if abs(seg_start - current_start) <= search_window:
+                text = segment.get('text', '').strip().lower()
+                # Look for sentence beginnings or natural speech starts
+                if (text.startswith(('so ', 'now ', 'alright ', 'okay ', 'well ')) or
+                    text.startswith(('the ', 'i ', 'you ', 'we ', 'that ')) or
+                    text.startswith('and ') and len(text) > 10):
+                    return seg_start
+        
+        return current_start
+    
+    def _find_better_end_boundary(self, current_end: float, segments: List[Dict]) -> float:
+        """Find a better end boundary within nearby segments"""
+        search_window = 10  # seconds
+        
+        for segment in reversed(segments):
+            seg_end = segment.get('end', 0)
+            if abs(seg_end - current_end) <= search_window:
+                text = segment.get('text', '').strip()
+                # Look for sentence endings or natural speech conclusions
+                if (text.endswith(('.', '?', '!', 'right?', 'okay?')) or
+                    text.lower().endswith(('you know', 'exactly', 'perfect', 'got it'))):
+                    return seg_end
+        
+        return current_end
+    
     def _generate_debug_curl(self, request_params: Dict, model_name: str):
         """
         Generate a curl command equivalent to the OpenAI API request for debugging

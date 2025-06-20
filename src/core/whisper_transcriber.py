@@ -1,6 +1,7 @@
 """
 Whisper Transcriber
 Handles both OpenAI API and local Whisper transcription with automatic fallback
+Supports both original Whisper and Faster-Whisper implementations
 """
 
 import os
@@ -9,6 +10,15 @@ import subprocess
 import whisper
 import torch
 from typing import Dict, Optional, Callable, Any
+
+# Try to import faster-whisper, fallback gracefully if not available
+try:
+    from faster_whisper import WhisperModel as FasterWhisperModel
+    FASTER_WHISPER_AVAILABLE = True
+    print("🚀 Faster-Whisper is available")
+except ImportError:
+    FASTER_WHISPER_AVAILABLE = False
+    print("⚠️ Faster-Whisper not available, using standard Whisper only")
 
 
 class WhisperTranscriber:
@@ -25,8 +35,17 @@ class WhisperTranscriber:
             openai_client: OpenAI client for API transcription
         """
         self.openai_client = openai_client
-        self.local_model: Optional[Any] = None  # Whisper model type
+        self.local_model: Optional[Any] = None  # Can be whisper.Whisper or FasterWhisperModel
         self.max_api_size = 24_000_000  # 24MB safe limit for API
+        
+        # Configuration from environment variables
+        self.use_faster_whisper = os.getenv('USE_FASTER_WHISPER', 'false').lower() == 'true'
+        self.preferred_model = os.getenv('WHISPER_MODEL', 'large-v3')  # Default to large-v3
+        
+        # Validate configuration
+        if self.use_faster_whisper and not FASTER_WHISPER_AVAILABLE:
+            print("⚠️ USE_FASTER_WHISPER=true but faster-whisper not installed, falling back to standard Whisper")
+            self.use_faster_whisper = False
         
         # Detect available device for local processing
         self.device = self._detect_device()
@@ -34,7 +53,10 @@ class WhisperTranscriber:
         # Optimize PyTorch for better CPU performance
         self._optimize_pytorch()
         
-        print(f"🔧 Whisper transcriber initialized with device: {self.device}")
+        print(f"🔧 Whisper transcriber initialized:")
+        print(f"   - Implementation: {'Faster-Whisper' if self.use_faster_whisper else 'Standard Whisper'}")
+        print(f"   - Preferred model: {self.preferred_model}")
+        print(f"   - Device: {self.device}")
     
     def transcribe(self, audio_path: str, progress_callback: Optional[Callable] = None) -> Dict:
         """
@@ -148,13 +170,11 @@ class WhisperTranscriber:
             if progress_callback:
                 progress_callback("generating_transcription", 45.0, "Transcribing with local Whisper...")
             
-            # Transcribe with local model
-            print(f"🎙️ Processing audio with local Whisper...")
-            result = self.local_model.transcribe(
-                audio_path,
-                word_timestamps=True,
-                verbose=False
-            )
+            # Transcribe based on implementation type
+            if self.use_faster_whisper:
+                result = self._transcribe_with_faster_whisper(audio_path, use_word_timestamps=True, progress_callback=progress_callback)
+            else:
+                result = self._transcribe_with_standard_whisper(audio_path, use_word_timestamps=True)
             
             if progress_callback:
                 progress_callback("generating_transcription", 65.0, "Formatting transcription results...")
@@ -202,13 +222,11 @@ class WhisperTranscriber:
             # Decide whether to use word timestamps based on duration
             use_word_timestamps = self._should_use_word_timestamps(duration)
             
-            # Transcribe with local model
-            print(f"🎙️ Processing audio with local Whisper (word_timestamps={use_word_timestamps})...")
-            result = self.local_model.transcribe(
-                audio_path,
-                word_timestamps=use_word_timestamps,
-                verbose=False
-            )
+            # Transcribe based on implementation type
+            if self.use_faster_whisper:
+                result = self._transcribe_with_faster_whisper(audio_path, use_word_timestamps, progress_callback=progress_callback, duration=duration)
+            else:
+                result = self._transcribe_with_standard_whisper(audio_path, use_word_timestamps)
             
             if progress_callback:
                 progress_callback("generating_transcription", 65.0, "Formatting transcription results...")
@@ -273,22 +291,71 @@ class WhisperTranscriber:
         """Load the local Whisper model with intelligent device and model selection"""
         print(f"📥 Loading local Whisper model...")
         
-        # Use preferred model or fall back to default order based on device
-        if preferred_model:
-            models_to_try = [preferred_model, "medium", "small", "base"]
+        # Use the configured preferred model or fallback
+        model_to_use = preferred_model or self.preferred_model
+        print(f"🎯 Target model: {model_to_use}")
+        print(f"🔧 Using implementation: {'Faster-Whisper' if self.use_faster_whisper else 'Standard Whisper'}")
+        
+        if self.use_faster_whisper:
+            self._load_faster_whisper_model(model_to_use)
         else:
-            # Optimize model selection based on device and system
-            if self.device == "cuda":
-                models_to_try = ["large", "medium", "small", "base"]
-            else:
-                # For CPU, prioritize smaller models for better performance
-                system_name = platform.system()
-                if system_name == "Linux":
-                    # WSL2 or Linux - start with medium for good balance
-                    models_to_try = ["medium", "small", "base"]
-                else:
-                    # Windows/macOS - start with medium, avoid large for CPU
-                    models_to_try = ["medium", "small", "base"]
+            self._load_standard_whisper_model(model_to_use)
+    
+    def _load_faster_whisper_model(self, preferred_model: str):
+        """Load Faster-Whisper model"""
+        print(f"🚀 Loading Faster-Whisper model: {preferred_model}")
+        
+        # Map device for faster-whisper
+        device_map = {
+            "cuda": "cuda",
+            "cpu": "cpu"
+        }
+        faster_device = device_map.get(self.device, "cpu")
+        
+        # Models to try in order of preference (always prioritize large-v3)
+        models_to_try = [preferred_model, "large-v3", "large", "medium", "small", "base"]
+        # Remove duplicates while preserving order
+        models_to_try = list(dict.fromkeys(models_to_try))
+        
+        for model_name in models_to_try:
+            try:
+                print(f"📥 Trying Faster-Whisper '{model_name}' model on {faster_device}...")
+                
+                # For GPU, check memory if available
+                if faster_device == "cuda" and torch.cuda.is_available():
+                    memory_needed = self._estimate_model_memory(model_name)
+                    available_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                    
+                    if memory_needed > available_memory * 0.8:
+                        print(f"⚠️ Model '{model_name}' needs ~{memory_needed:.1f}GB, but only {available_memory:.1f}GB available")
+                        continue
+                
+                # Load Faster-Whisper model
+                self.local_model = FasterWhisperModel(
+                    model_name, 
+                    device=faster_device,
+                    compute_type="float16" if faster_device == "cuda" else "int8"
+                )
+                
+                print(f"✅ Faster-Whisper model '{model_name}' loaded successfully on {faster_device}")
+                return
+                
+            except Exception as e:
+                print(f"⚠️ Failed to load Faster-Whisper '{model_name}' on {faster_device}: {str(e)}")
+                if faster_device == "cuda":
+                    torch.cuda.empty_cache()
+                continue
+        
+        raise Exception("Failed to load any Faster-Whisper model")
+    
+    def _load_standard_whisper_model(self, preferred_model: str):
+        """Load standard Whisper model (original implementation)"""
+        print(f"📥 Loading standard Whisper model: {preferred_model}")
+        
+        # Use preferred model or fall back to default order based on device
+        models_to_try = [preferred_model, "large-v3", "large", "medium", "small", "base"]
+        # Remove duplicates while preserving order
+        models_to_try = list(dict.fromkeys(models_to_try))
         
         # Try devices in order of preference
         if self.device == "cuda":
@@ -299,7 +366,7 @@ class WhisperTranscriber:
         for model_name in models_to_try:
             for device in devices_to_try:
                 try:
-                    print(f"📥 Trying Whisper '{model_name}' model on {device}...")
+                    print(f"📥 Trying standard Whisper '{model_name}' model on {device}...")
                     
                     # For GPU, check if we have enough memory for the model
                     if device == "cuda":
@@ -321,7 +388,7 @@ class WhisperTranscriber:
                     else:
                         print(f"🧪 Testing CPU model...")
                     
-                    print(f"✅ Local Whisper model '{model_name}' loaded successfully on {device}")
+                    print(f"✅ Standard Whisper model '{model_name}' loaded successfully on {device}")
                     
                     # Log optimization info for CPU
                     if device == "cpu":
@@ -341,8 +408,7 @@ class WhisperTranscriber:
                         torch.cuda.empty_cache()  # Clear GPU memory on any GPU error
                     continue
         
-        # If we get here, all attempts failed
-        raise Exception("Failed to load any Whisper model on any device")
+        raise Exception("Failed to load any standard Whisper model")
     
     def _estimate_model_memory(self, model_name: str) -> float:
         """Estimate memory requirements for Whisper models in GB"""
@@ -560,3 +626,108 @@ class WhisperTranscriber:
                 return False
         except Exception:
             return False
+    
+    def _transcribe_with_faster_whisper(self, audio_path: str, use_word_timestamps: bool, progress_callback: Optional[Callable] = None, duration: Optional[float] = None) -> Dict:
+        """
+        Transcribe using Faster-Whisper implementation with real-time progress
+        
+        Args:
+            audio_path: Path to audio file
+            use_word_timestamps: Whether to include word-level timestamps
+            progress_callback: Optional callback for progress updates
+            duration: Optional audio duration for progress calculation
+            
+        Returns:
+            Raw transcription result from Faster-Whisper
+        """
+        print(f"🚀 Processing audio with Faster-Whisper (word_timestamps={use_word_timestamps})...")
+        
+        # Faster-Whisper uses different API
+        segments, info = self.local_model.transcribe(
+            audio_path,
+            word_timestamps=use_word_timestamps,
+            vad_filter=True,  # Voice Activity Detection for better segments
+            vad_parameters=dict(min_silence_duration_ms=500)  # 500ms silence threshold
+        )
+        
+        # Get audio duration for progress calculation
+        audio_duration = duration or info.duration
+        print(f"⏱️ Audio duration: {audio_duration:.1f} seconds")
+        
+        # Build result in Whisper format with real-time progress
+        result = {
+            "text": "",
+            "segments": []
+        }
+        
+        # Process segments from generator with real-time progress
+        last_progress_update = 0.0
+        progress_threshold = 5.0  # Update progress every 5 seconds to avoid UI nervousness
+        
+        for segment in segments:
+            # Build segment text
+            segment_text = segment.text
+            result["text"] += segment_text
+            
+            # Build segment data
+            segment_data = {
+                "id": segment.id,
+                "start": segment.start,
+                "end": segment.end,
+                "text": segment_text
+            }
+            
+            # Add word timestamps if available
+            if use_word_timestamps and hasattr(segment, 'words') and segment.words:
+                segment_data["words"] = [
+                    {
+                        "word": word.word,
+                        "start": word.start,
+                        "end": word.end,
+                        "probability": getattr(word, 'probability', 0.9)
+                    }
+                    for word in segment.words
+                ]
+            
+            result["segments"].append(segment_data)
+            
+            # Update progress based on audio time processed
+            if progress_callback and audio_duration > 0:
+                # Calculate progress as percentage of audio time processed
+                time_processed = segment.end
+                progress_percentage = min(95.0, (time_processed / audio_duration) * 100)
+                
+                # Throttle progress updates to avoid UI nervousness
+                if time_processed - last_progress_update >= progress_threshold or progress_percentage >= 95.0:
+                    progress_message = f"Transcribing with Faster-Whisper... {time_processed:.1f}/{audio_duration:.1f}s"
+                    progress_callback("generating_transcription", 45.0 + (progress_percentage * 0.2), progress_message)
+                    last_progress_update = time_processed
+                    print(f"📊 Progress: {progress_percentage:.1f}% ({time_processed:.1f}s/{audio_duration:.1f}s)")
+        
+        # Final progress update
+        if progress_callback:
+            progress_callback("generating_transcription", 65.0, "Faster-Whisper transcription completed")
+        
+        return result
+    
+    def _transcribe_with_standard_whisper(self, audio_path: str, use_word_timestamps: bool) -> Dict:
+        """
+        Transcribe using standard Whisper implementation
+        
+        Args:
+            audio_path: Path to audio file
+            use_word_timestamps: Whether to include word-level timestamps
+            
+        Returns:
+            Raw transcription result from standard Whisper
+        """
+        print(f"📥 Processing audio with standard Whisper (word_timestamps={use_word_timestamps})...")
+        
+        # Standard Whisper API
+        result = self.local_model.transcribe(
+            audio_path,
+            word_timestamps=use_word_timestamps,
+            verbose=False
+        )
+        
+        return result
