@@ -162,6 +162,9 @@ class MainWindow(ctk.CTk):
                 "start_time": cut.get("start", "00:00:00"),
                 "end_time": cut.get("end", "00:00:00"),
                 "duration": cut.get("duration", "00:00:00"),
+                "content_type": cut.get("content_type", "unknown"),  # Preserve content_type from JSON
+                "quality_score": cut.get("quality_score", "unknown"),  # Preserve quality_score
+                "social_media_value": cut.get("quality_score", "unknown"),  # Map quality_score to social_media_value
                 "status": "ready"  # Default status for parsed cuts
             }
             converted_cuts.append(converted_cut)
