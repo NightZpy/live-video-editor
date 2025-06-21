@@ -193,3 +193,6 @@ data/
 
 # Debug files - contain sensitive information (API keys)
 debug/
+
+# Prompt templates - user customizable files
+src/core/prompts/*.txt
