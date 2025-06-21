@@ -44,9 +44,11 @@ class VideoPreviewComponent(ctk.CTkFrame):
         self.expected_frame_time: float = 0.0
         
         # Audio integration
+        # Audio state tracking
         self.audio_cache_manager = None
-        self.current_audio_segment = None
         self.audio_loading_thread = None
+        self.audio_pause_position = None  # Track where audio was paused (in seconds relative to cut start)
+        self.audio_is_resuming = False   # Flag to indicate if we're resuming from pause
         
         # Setup UI
         self.setup_ui()
@@ -427,6 +429,9 @@ class VideoPreviewComponent(ctk.CTkFrame):
         if not self.video_capture or not self.selected_cut:
             return
         
+        # Check if we're resuming from a pause
+        is_resuming = self.audio_pause_position is not None
+        
         # Start playback using OpenCV timer
         self.is_playing = True
         self.is_paused = False
@@ -438,8 +443,13 @@ class VideoPreviewComponent(ctk.CTkFrame):
         # Update button text
         self.play_pause_btn.configure(text="⏸️ Pause")
         
-        # Start audio playback if available
-        self._start_audio_playback()
+        # Start audio playback if available (pass resume position if resuming)
+        if is_resuming:
+            self._start_audio_playback(resume_from_position=self.audio_pause_position)
+            print(f"🔄 Resuming audio from position: {self.audio_pause_position:.1f}s")
+            self.audio_pause_position = None  # Clear pause position
+        else:
+            self._start_audio_playback()
         
         # Start monitoring playback to auto-stop at cut end
         self.start_cut_monitoring()
@@ -448,12 +458,24 @@ class VideoPreviewComponent(ctk.CTkFrame):
         self.play_frame()
         
         audio_status = self._get_audio_status()
-        print(f"▶️ Started playback for cut: {self.selected_cut.get('title', 'Unknown')} (audio: {audio_status})")
+        resume_text = " (resumed)" if is_resuming else ""
+        print(f"▶️ Started playback for cut: {self.selected_cut.get('title', 'Unknown')} (audio: {audio_status}){resume_text}")
     
     def pause_playback(self):
         """Pause video playback"""
         if not self.video_capture:
             return
+        
+        # Calculate current position relative to cut start for audio resume
+        if self.selected_cut and self.video_capture:
+            try:
+                current_video_time = self.video_capture.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
+                cut_start_time = self.parse_time_to_seconds(self.selected_cut.get("start_time", "00:00:00"))
+                self.audio_pause_position = current_video_time - cut_start_time
+                print(f"⏸️ Audio paused at position: {self.audio_pause_position:.1f}s (relative to cut start)")
+            except Exception as e:
+                print(f"⚠️ Error calculating pause position: {e}")
+                self.audio_pause_position = None
         
         # Pause playback by stopping the timer
         self.is_playing = False
@@ -482,6 +504,9 @@ class VideoPreviewComponent(ctk.CTkFrame):
         # Stop playback
         self.is_playing = False
         self.is_paused = False
+        
+        # Clear audio pause position (since we're stopping, not pausing)
+        self.audio_pause_position = None
         
         # Reset timing variables
         self.playback_start_time = None
@@ -680,6 +705,14 @@ class VideoPreviewComponent(ctk.CTkFrame):
         if not self.video_capture:
             print("⚠️ Video not loaded for cut preview")
             return
+        
+        # Stop any current playback before loading new cut
+        if self.is_playing or self.is_paused:
+            self.stop_playback()
+            print("⏹️ Stopped previous playback to load new cut")
+        
+        # Clear any pause position since we're loading a new cut
+        self.audio_pause_position = None
         
         # Store selected cut data
         self.selected_cut = cut_data
@@ -1091,8 +1124,13 @@ class VideoPreviewComponent(ctk.CTkFrame):
         except Exception as e:
             print(f"Error displaying frame: {e}")
     
-    def _start_audio_playback(self):
-        """Start audio playback for the current cut"""
+    def _start_audio_playback(self, resume_from_position=None):
+        """
+        Start audio playback for the current cut
+        
+        Args:
+            resume_from_position: Optional position in seconds (relative to cut start) to resume from
+        """
         if not self.audio_cache_manager or not self.video_path or not self.selected_cut:
             print(f"⚠️ Cannot start audio: manager={self.audio_cache_manager is not None}, path={self.video_path is not None}, cut={self.selected_cut is not None}")
             return
@@ -1107,15 +1145,32 @@ class VideoPreviewComponent(ctk.CTkFrame):
                 print(f"⚠️ Invalid cut duration: {duration}s")
                 return
             
-            # Create audio segment for this cut
+            # If resuming from a specific position, adjust the start time and duration
+            if resume_from_position is not None and resume_from_position > 0:
+                # Adjust start time to resume position
+                actual_start_time = start_time + resume_from_position
+                actual_duration = duration - resume_from_position
+                
+                if actual_duration <= 0:
+                    print(f"⚠️ Resume position too late: {resume_from_position}s >= {duration}s")
+                    return
+                
+                print(f"🔄 Resuming audio from {resume_from_position:.1f}s into cut")
+            else:
+                # Start from beginning
+                actual_start_time = start_time
+                actual_duration = duration
+            
+            # Create audio segment for this cut (from current position)
             self.current_audio_segment = self.audio_cache_manager.create_audio_segment(
-                self.video_path, start_time, duration
+                self.video_path, actual_start_time, actual_duration
             )
             
             if self.current_audio_segment:
                 # Start audio playback
                 self.current_audio_segment.play()
-                print(f"🎵 Audio started for cut: {start_time:.1f}s - {end_time:.1f}s")
+                action = "resumed" if resume_from_position is not None else "started"
+                print(f"🎵 Audio {action} for cut: {actual_start_time:.1f}s - {end_time:.1f}s")
             else:
                 audio_status = self._get_audio_status()
                 print(f"⚠️ Could not create audio segment (status: {audio_status})")
