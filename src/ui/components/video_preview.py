@@ -50,6 +50,12 @@ class VideoPreviewComponent(ctk.CTkFrame):
         self.audio_pause_position = None  # Track where audio was paused (in seconds relative to cut start)
         self.audio_is_resuming = False   # Flag to indicate if we're resuming from pause
         
+        # Cut editing state
+        self.original_cut_data = None  # Store original cut data for reset functionality
+        self.is_editing_cut = False    # Track if we're in editing mode
+        self.editing_start_time = False  # Track which field is being edited
+        self.editing_end_time = False
+        
         # Setup UI
         self.setup_ui()
         
@@ -287,33 +293,72 @@ class VideoPreviewComponent(ctk.CTkFrame):
         self.toggle_info_panel()
     
     def create_time_info(self, parent):
-        """Create time information section"""
+        """Create time information section with editable times"""
         # Start time
         start_label_style = get_text_style("small")
-        start_label = ctk.CTkLabel(parent, text="Start Time:", **start_label_style)
+        start_label = ctk.CTkLabel(parent, text="Start Time (double-click to edit):", **start_label_style)
         start_label.grid(row=1, column=0, padx=SPACING["md"], pady=SPACING["xs"], sticky="w")
         
+        # Start time container for switching between label and entry
+        self.start_time_container = ctk.CTkFrame(parent, fg_color="transparent")
+        self.start_time_container.grid(row=2, column=0, padx=SPACING["md"], pady=(0, SPACING["sm"]), sticky="w")
+        
+        # Start time label (default view)
         self.start_time_label = ctk.CTkLabel(
-            parent,
+            self.start_time_container,
             text="00:00:00",
             font=("Consolas", 14, "bold"),
             text_color=COLORS["success"]
         )
-        self.start_time_label.grid(row=2, column=0, padx=SPACING["md"], pady=(0, SPACING["sm"]), sticky="w")
+        self.start_time_label.grid(row=0, column=0, sticky="w")
+        self.start_time_label.bind("<Double-Button-1>", lambda e: self.start_edit_time("start"))
+        
+        # Start time entry (for editing)
+        self.start_time_entry = ctk.CTkEntry(
+            self.start_time_container,
+            width=100,
+            font=("Consolas", 14, "bold"),
+            fg_color=COLORS["input_bg"],
+            border_color=COLORS["success"]
+        )
+        self.start_time_entry.bind("<Return>", lambda e: self.save_time_edit("start"))
+        self.start_time_entry.bind("<Escape>", lambda e: self.cancel_time_edit("start"))
+        self.start_time_entry.bind("<FocusOut>", lambda e: self.on_focus_out("start"))
+        self.start_time_entry.bind("<Button-1>", lambda e: self.on_entry_click("start"))
         
         # End time
-        end_label = ctk.CTkLabel(parent, text="End Time:", **start_label_style)
+        end_label_style = get_text_style("small")
+        end_label = ctk.CTkLabel(parent, text="End Time (double-click to edit):", **end_label_style)
         end_label.grid(row=1, column=1, padx=SPACING["md"], pady=SPACING["xs"], sticky="w")
         
+        # End time container
+        self.end_time_container = ctk.CTkFrame(parent, fg_color="transparent")
+        self.end_time_container.grid(row=2, column=1, padx=SPACING["md"], pady=(0, SPACING["sm"]), sticky="w")
+        
+        # End time label (default view)
         self.end_time_label = ctk.CTkLabel(
-            parent,
+            self.end_time_container,
             text="00:00:00",
             font=("Consolas", 14, "bold"),
             text_color=COLORS["error"]
         )
-        self.end_time_label.grid(row=2, column=1, padx=SPACING["md"], pady=(0, SPACING["sm"]), sticky="w")
+        self.end_time_label.grid(row=0, column=0, sticky="w")
+        self.end_time_label.bind("<Double-Button-1>", lambda e: self.start_edit_time("end"))
         
-        # Duration
+        # End time entry (for editing)
+        self.end_time_entry = ctk.CTkEntry(
+            self.end_time_container,
+            width=100,
+            font=("Consolas", 14, "bold"),
+            fg_color=COLORS["input_bg"],
+            border_color=COLORS["error"]
+        )
+        self.end_time_entry.bind("<Return>", lambda e: self.save_time_edit("end"))
+        self.end_time_entry.bind("<Escape>", lambda e: self.cancel_time_edit("end"))
+        self.end_time_entry.bind("<FocusOut>", lambda e: self.on_focus_out("end"))
+        self.end_time_entry.bind("<Button-1>", lambda e: self.on_entry_click("end"))
+        
+        # Duration (read-only)
         duration_label = ctk.CTkLabel(parent, text="Duration:", **start_label_style)
         duration_label.grid(row=1, column=2, padx=SPACING["md"], pady=SPACING["xs"], sticky="w")
         
@@ -324,6 +369,48 @@ class VideoPreviewComponent(ctk.CTkFrame):
             text_color=COLORS["accent"]
         )
         self.duration_label.grid(row=2, column=2, padx=SPACING["md"], pady=(0, SPACING["sm"]), sticky="w")
+        
+        # Edit controls (Save/Reset buttons) - initially hidden
+        self.edit_controls_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        self.edit_controls_frame.grid(row=3, column=0, columnspan=3, padx=SPACING["md"], pady=SPACING["sm"], sticky="ew")
+        
+        # Status label for validation messages
+        self.status_label = ctk.CTkLabel(
+            self.edit_controls_frame,
+            text="",
+            font=("Segoe UI", 11),
+            text_color=COLORS["error"]
+        )
+        self.status_label.grid(row=0, column=0, columnspan=3, pady=(0, SPACING["xs"]))
+        
+        # Buttons frame
+        buttons_frame = ctk.CTkFrame(self.edit_controls_frame, fg_color="transparent")
+        buttons_frame.grid(row=1, column=0, columnspan=3)
+        
+        # Save button
+        save_button_style = get_button_style("success")
+        self.save_cut_btn = ctk.CTkButton(
+            buttons_frame,
+            text="💾 Save Changes",
+            width=120,
+            command=self.save_cut_changes,
+            **save_button_style
+        )
+        self.save_cut_btn.grid(row=0, column=0, padx=(0, SPACING["sm"]))
+        
+        # Reset button
+        reset_button_style = get_button_style("secondary")
+        self.reset_cut_btn = ctk.CTkButton(
+            buttons_frame,
+            text="🔄 Reset",
+            width=100,
+            command=self.reset_cut_changes,
+            **reset_button_style
+        )
+        self.reset_cut_btn.grid(row=0, column=1)
+        
+        # Initially hide edit controls
+        self.edit_controls_frame.grid_remove()
     
     def create_cut_details(self, parent):
         """Create cut title and description section"""
@@ -775,53 +862,494 @@ class VideoPreviewComponent(ctk.CTkFrame):
         except (ValueError, IndexError):
             return 0.0
     
-    def on_time_update(self, time_seconds: float):
+    def get_video_duration(self) -> float:
         """
-        Callback for time updates during playback
+        Get total video duration in seconds
+        
+        Returns:
+            Video duration in seconds, or 0 if not available
+        """
+        # Try to get from video_info first
+        if self.video_info and 'duration_seconds' in self.video_info:
+            return float(self.video_info['duration_seconds'])
+        
+        # Fallback to OpenCV if video is loaded
+        if self.video_capture and self.video_capture.isOpened():
+            frame_count = self.video_capture.get(cv2.CAP_PROP_FRAME_COUNT)
+            fps = self.video_capture.get(cv2.CAP_PROP_FPS)
+            if fps > 0:
+                return frame_count / fps
+        
+        return 0.0
+    
+    def seconds_to_time_string_precise(self, seconds: float) -> str:
+        """Convert seconds to HH:MM:SS format with precision"""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    
+    def validate_time_format(self, time_str: str) -> bool:
+        """
+        Validate time string format
         
         Args:
-            time_seconds: Current playback time in seconds
+            time_str: Time string to validate
+            
+        Returns:
+            True if format is valid
         """
-        if self.selected_cut:
-            # Calculate time relative to cut start
-            start_time = self.parse_time_to_seconds(self.selected_cut.get("start_time", "00:00:00"))
-            end_time = self.parse_time_to_seconds(self.selected_cut.get("end_time", "00:00:00"))
-            
-            # Time elapsed in the cut
-            cut_current_time = time_seconds - start_time
-            cut_duration = end_time - start_time
-            
-            # Update time display
-            self.update_time_display(cut_current_time, cut_duration)
+        try:
+            parts = time_str.split(":")
+            if len(parts) == 3:
+                hours, minutes, seconds = map(int, parts)
+                return (0 <= hours <= 23 and 
+                       0 <= minutes <= 59 and 
+                       0 <= seconds <= 59)
+            elif len(parts) == 2:
+                minutes, seconds = map(int, parts)
+                return (0 <= minutes <= 59 and 
+                       0 <= seconds <= 59)
+            else:
+                seconds = int(parts[0])
+                return seconds >= 0
+        except (ValueError, IndexError):
+            return False
     
-    def on_playback_end(self):
-        """Callback when playback reaches the end of cut"""
-        # Reset playback state
-        self.is_playing = False
-        self.is_paused = False
-        self.play_pause_btn.configure(text="▶️ Play")
+    def validate_cut_times(self, start_time_str: str, end_time_str: str) -> tuple[bool, str]:
+        """
+        Validate cut times
         
-        # Return to start of cut
-        if self.selected_cut and self.video_capture:
-            start_time = self.parse_time_to_seconds(self.selected_cut.get("start_time", "00:00:00"))
-            start_frame = int(start_time * self.video_capture.get(cv2.CAP_PROP_FPS))
-            self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        Args:
+            start_time_str: Start time string
+            end_time_str: End time string
             
-            # Show the first frame
-            ret, frame = self.video_capture.read()
-            if ret:
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                frame_image = Image.fromarray(frame_rgb)
-                self.display_frame(frame_image)
-                # Reset to the start frame position
-                self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-            
-            # Reset time display
-            end_time = self.parse_time_to_seconds(self.selected_cut.get("end_time", "00:00:00"))
-            cut_duration = end_time - start_time
-            self.update_time_display(0, cut_duration)
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        # Validate format
+        if not self.validate_time_format(start_time_str):
+            return False, "Invalid start time format. Use HH:MM:SS or MM:SS"
         
-        print("🏁 Cut playback ended, returned to start")
+        if not self.validate_time_format(end_time_str):
+            return False, "Invalid end time format. Use HH:MM:SS or MM:SS"
+        
+        # Convert to seconds
+        start_seconds = self.parse_time_to_seconds(start_time_str)
+        end_seconds = self.parse_time_to_seconds(end_time_str)
+        
+        # Validate logical constraints
+        if start_seconds >= end_seconds:
+            return False, "Start time must be before end time"
+        
+        # Validate against video duration
+        video_duration = self.get_video_duration()
+        if video_duration > 0:
+            if start_seconds >= video_duration:
+                return False, f"Start time exceeds video duration ({self.seconds_to_time_string_precise(video_duration)})"
+            
+            if end_seconds > video_duration:
+                return False, f"End time exceeds video duration ({self.seconds_to_time_string_precise(video_duration)})"
+        
+        # Validate minimum cut duration (e.g., at least 1 second)
+        if (end_seconds - start_seconds) < 1.0:
+            return False, "Cut must be at least 1 second long"
+        
+        return True, ""
+    
+    # === Cut Editing Methods ===
+    
+    def start_edit_time(self, time_type: str):
+        """
+        Start editing a time field
+        
+        Args:
+            time_type: Either "start" or "end"
+        """
+        if not self.selected_cut:
+            return
+        
+        # Store original data if not already stored
+        if self.original_cut_data is None:
+            self.original_cut_data = self.selected_cut.copy()
+            print(f"📋 Stored original cut data for reset functionality")
+        
+        if time_type == "start":
+            self.editing_start_time = True
+            # Hide label, show entry
+            self.start_time_label.grid_remove()
+            self.start_time_entry.grid(row=0, column=0, sticky="w")
+            
+            # Set current value and select all text
+            current_value = self.start_time_label.cget("text")
+            self.start_time_entry.delete(0, "end")
+            self.start_time_entry.insert(0, current_value)
+            self.start_time_entry.select_range(0, "end")
+            self.start_time_entry.focus()
+            
+        elif time_type == "end":
+            self.editing_end_time = True
+            # Hide label, show entry
+            self.end_time_label.grid_remove()
+            self.end_time_entry.grid(row=0, column=0, sticky="w")
+            
+            # Set current value and select all text
+            current_value = self.end_time_label.cget("text")
+            self.end_time_entry.delete(0, "end")
+            self.end_time_entry.insert(0, current_value)
+            self.end_time_entry.select_range(0, "end")
+            self.end_time_entry.focus()
+        
+        # Show edit controls if any field is being edited
+        self.is_editing_cut = True
+        self.edit_controls_frame.grid()
+        self.status_label.configure(text="")  # Clear any previous messages
+        
+        print(f"✏️ Started editing {time_type} time")
+    
+    def save_time_edit(self, time_type: str):
+        """
+        Save individual time field edit
+        
+        Args:
+            time_type: Either "start" or "end"
+        """
+        if time_type == "start" and self.editing_start_time:
+            new_value = self.start_time_entry.get().strip()
+            
+            # Basic format validation
+            if not self.validate_time_format(new_value):
+                self.status_label.configure(
+                    text="Invalid start time format. Use HH:MM:SS or MM:SS",
+                    text_color=COLORS["error"]
+                )
+                return
+            
+            # Update the label
+            self.start_time_label.configure(text=new_value)
+            
+            # Switch back to label view
+            self.start_time_entry.grid_remove()
+            self.start_time_label.grid(row=0, column=0, sticky="w")
+            self.editing_start_time = False
+            
+        elif time_type == "end" and self.editing_end_time:
+            new_value = self.end_time_entry.get().strip()
+            
+            # Basic format validation
+            if not self.validate_time_format(new_value):
+                self.status_label.configure(
+                    text="Invalid end time format. Use HH:MM:SS or MM:SS",
+                    text_color=COLORS["error"]
+                )
+                return
+            
+            # Update the label
+            self.end_time_label.configure(text=new_value)
+            
+            # Switch back to label view
+            self.end_time_entry.grid_remove()
+            self.end_time_label.grid(row=0, column=0, sticky="w")
+            self.editing_end_time = False
+        
+        # Update duration display
+        self.update_duration_display()
+        
+        # Clear status if no errors
+        self.status_label.configure(text="")
+        
+        # If no fields are being edited, validate the complete cut
+        if not self.editing_start_time and not self.editing_end_time:
+            self.validate_current_edit()
+        
+        print(f"✅ Saved {time_type} time edit")
+    
+    def cancel_time_edit(self, time_type: str):
+        """
+        Cancel time field edit and restore original value
+        
+        Args:
+            time_type: Either "start" or "end"
+        """
+        if time_type == "start" and self.editing_start_time:
+            # Restore original value
+            if self.original_cut_data:
+                original_value = self.original_cut_data.get("start_time", "00:00:00")
+                self.start_time_label.configure(text=original_value)
+            
+            # Switch back to label view
+            self.start_time_entry.grid_remove()
+            self.start_time_label.grid(row=0, column=0, sticky="w")
+            self.editing_start_time = False
+            
+        elif time_type == "end" and self.editing_end_time:
+            # Restore original value
+            if self.original_cut_data:
+                original_value = self.original_cut_data.get("end_time", "00:00:00")
+                self.end_time_label.configure(text=original_value)
+            
+            # Switch back to label view
+            self.end_time_entry.grid_remove()
+            self.end_time_label.grid(row=0, column=0, sticky="w")
+            self.editing_end_time = False
+        
+        # Update duration and clear status
+        self.update_duration_display()
+        self.status_label.configure(text="")
+        
+        # Hide edit controls if no fields are being edited
+        if not self.editing_start_time and not self.editing_end_time:
+            self.is_editing_cut = False
+            self.edit_controls_frame.grid_remove()
+        
+        print(f"❌ Cancelled {time_type} time edit")
+    
+    def update_duration_display(self):
+        """Update the duration display based on current start/end times"""
+        try:
+            start_time_str = self.start_time_label.cget("text")
+            end_time_str = self.end_time_label.cget("text")
+            
+            start_seconds = self.parse_time_to_seconds(start_time_str)
+            end_seconds = self.parse_time_to_seconds(end_time_str)
+            
+            if end_seconds > start_seconds:
+                duration_seconds = end_seconds - start_seconds
+                duration_str = self.seconds_to_time_string_precise(duration_seconds)
+                self.duration_label.configure(text=duration_str)
+            else:
+                self.duration_label.configure(text="--:--:--")
+                
+        except Exception as e:
+            print(f"Error updating duration: {e}")
+            self.duration_label.configure(text="--:--:--")
+    
+    def validate_current_edit(self):
+        """Validate current time values and show status"""
+        start_time_str = self.start_time_label.cget("text")
+        end_time_str = self.end_time_label.cget("text")
+        
+        is_valid, error_msg = self.validate_cut_times(start_time_str, end_time_str)
+        
+        if is_valid:
+            self.status_label.configure(
+                text="✅ Times are valid - Click 'Save Changes' to apply",
+                text_color=COLORS["success"]
+            )
+        else:
+            self.status_label.configure(
+                text=f"❌ {error_msg}",
+                text_color=COLORS["error"]
+            )
+    
+    def save_cut_changes(self):
+        """Save all cut changes and update the data"""
+        if not self.selected_cut or not self.original_cut_data:
+            return
+        
+        # Get current values - check if we're still editing and use entry values if so
+        if self.editing_start_time:
+            new_start_time = self.start_time_entry.get().strip()
+        else:
+            new_start_time = self.start_time_label.cget("text")
+            
+        if self.editing_end_time:
+            new_end_time = self.end_time_entry.get().strip()
+        else:
+            new_end_time = self.end_time_label.cget("text")
+        
+        print(f"🔄 Attempting to save changes: {new_start_time} - {new_end_time}")
+        
+        # Validate before saving
+        is_valid, error_msg = self.validate_cut_times(new_start_time, new_end_time)
+        
+        if not is_valid:
+            self.status_label.configure(
+                text=f"❌ Cannot save: {error_msg}",
+                text_color=COLORS["error"]
+            )
+            return
+        
+        # Update selected cut data
+        self.selected_cut["start_time"] = new_start_time
+        self.selected_cut["end_time"] = new_end_time
+        
+        # Calculate and update duration
+        start_seconds = self.parse_time_to_seconds(new_start_time)
+        end_seconds = self.parse_time_to_seconds(new_end_time)
+        duration_seconds = end_seconds - start_seconds
+        duration_str = self.seconds_to_time_string_precise(duration_seconds)
+        self.selected_cut["duration"] = duration_str
+        
+        # Update all displays with the new values
+        self.start_time_label.configure(text=new_start_time)
+        self.end_time_label.configure(text=new_end_time)
+        self.duration_label.configure(text=duration_str)
+        
+        # Hide any active editing fields and show labels
+        if self.editing_start_time:
+            self.start_time_entry.grid_remove()
+            self.start_time_label.grid(row=0, column=0, sticky="w")
+            self.editing_start_time = False
+            
+        if self.editing_end_time:
+            self.end_time_entry.grid_remove()
+            self.end_time_label.grid(row=0, column=0, sticky="w")
+            self.editing_end_time = False
+        
+        # Notify that changes were saved
+        self.status_label.configure(
+            text="💾 Changes saved successfully!",
+            text_color=COLORS["success"]
+        )
+        
+        # Reset editing state but keep original data for future resets
+        self.is_editing_cut = False
+        self.edit_controls_frame.grid_remove()
+        
+        # Update video preview to new cut times
+        if self.video_capture and self.video_capture.isOpened():
+            self.load_cut_preview(self.selected_cut)
+        
+        # Notify cuts list component about the change (if available)
+        self.notify_cut_data_changed()
+        
+        print(f"💾 Cut changes saved: {new_start_time} - {new_end_time} (duration: {duration_str})")
+        print(f"📊 Updated cut data: start_time={self.selected_cut['start_time']}, end_time={self.selected_cut['end_time']}")
+    
+    def reset_cut_changes(self):
+        """Reset cut to original values"""
+        if not self.original_cut_data:
+            return
+        
+        # Restore original values
+        original_start = self.original_cut_data.get("start_time", "00:00:00")
+        original_end = self.original_cut_data.get("end_time", "00:00:00")
+        original_duration = self.original_cut_data.get("duration", "00:00:00")
+        
+        # Update displays
+        self.start_time_label.configure(text=original_start)
+        self.end_time_label.configure(text=original_end)
+        self.duration_label.configure(text=original_duration)
+        
+        # Update selected cut data
+        self.selected_cut["start_time"] = original_start
+        self.selected_cut["end_time"] = original_end
+        self.selected_cut["duration"] = original_duration
+        
+        # Reset editing state
+        self.is_editing_cut = False
+        self.editing_start_time = False
+        self.editing_end_time = False
+        
+        # Hide entries if visible and show labels
+        self.start_time_entry.grid_remove()
+        self.end_time_entry.grid_remove()
+        self.start_time_label.grid(row=0, column=0, sticky="w")
+        self.end_time_label.grid(row=0, column=0, sticky="w")
+        
+        # Hide edit controls
+        self.edit_controls_frame.grid_remove()
+        
+        # Update video preview to original cut times
+        if self.video_capture and self.video_capture.isOpened():
+            self.load_cut_preview(self.selected_cut)
+        
+        # Clear status
+        self.status_label.configure(text="")
+        
+        print(f"🔄 Cut reset to original: {original_start} - {original_end}")
+    
+    def notify_cut_data_changed(self):
+        """Notify other components that cut data has changed"""
+        try:
+            # Try to find the main editor and cuts list to refresh data
+            main_window = self.winfo_toplevel()
+            
+            if hasattr(main_window, 'main_editor') and hasattr(main_window.main_editor, 'cuts_list'):
+                cuts_list_component = main_window.main_editor.cuts_list
+                
+                # Find the index of current cut in the cuts_data
+                if hasattr(cuts_list_component, 'cuts_data') and self.selected_cut:
+                    for i, cut in enumerate(cuts_list_component.cuts_data):
+                        if cut is self.selected_cut:  # Same object reference
+                            # Refresh the cuts list display
+                            if hasattr(cuts_list_component, 'refresh_cut_display'):
+                                cuts_list_component.refresh_cut_display(i)
+                            elif hasattr(cuts_list_component, 'load_cuts'):
+                                cuts_list_component.load_cuts(cuts_list_component.cuts_data)
+                            break
+                
+                print("📋 Notified cuts list about data changes")
+            else:
+                print("⚠️ Could not find cuts list component to notify")
+                
+        except Exception as e:
+            print(f"⚠️ Error notifying cut data change: {e}")
+    
+    # === Updated Methods ===
+    
+    def update_cut_info(self, cut_data):
+        """Update the display with selected cut information and load cut preview"""
+        # Clear any existing editing state first
+        self.cancel_all_editing()
+        
+        self.selected_cut = cut_data
+        
+        if cut_data:
+            # Store original data for reset functionality
+            self.original_cut_data = cut_data.copy()
+            
+            # Update time displays
+            self.start_time_label.configure(text=cut_data.get("start_time", "00:00:00"))
+            self.end_time_label.configure(text=cut_data.get("end_time", "00:00:00"))
+            self.duration_label.configure(text=cut_data.get("duration", "00:00:00"))
+            
+            # Update entries
+            self.title_entry.delete(0, "end")
+            self.title_entry.insert(0, cut_data.get("title", ""))
+            
+            self.desc_entry.delete(0, "end")
+            self.desc_entry.insert(0, cut_data.get("description", ""))
+            
+            # Load cut preview if video is available
+            if self.video_capture and self.video_capture.isOpened():
+                self.load_cut_preview(cut_data)
+        else:
+            # Clear all data
+            self.original_cut_data = None
+            self.start_time_label.configure(text="00:00:00")
+            self.end_time_label.configure(text="00:00:00")
+            self.duration_label.configure(text="00:00:00")
+            self.title_entry.delete(0, "end")
+            self.desc_entry.delete(0, "end")
+    
+    def cancel_all_editing(self):
+        """Cancel any active editing and reset UI to display mode"""
+        if self.editing_start_time:
+            self.start_time_entry.grid_remove()
+            self.start_time_label.grid(row=0, column=0, sticky="w")
+            self.editing_start_time = False
+        
+        if self.editing_end_time:
+            self.end_time_entry.grid_remove()
+            self.end_time_label.grid(row=0, column=0, sticky="w")
+            self.editing_end_time = False
+        
+        if self.is_editing_cut:
+            self.is_editing_cut = False
+            self.edit_controls_frame.grid_remove()
+            self.status_label.configure(text="")
+    
+    def release_video(self):
+        """Release video resources"""
+        if self.video_capture:
+            try:
+                self.video_capture.release()
+            except:
+                pass
+        self.current_photo_image = None
+        self.show_placeholder()
     
     def show_placeholder(self, message: str = "Video Preview\n(Select a cut to view)"):
         """
@@ -852,36 +1380,6 @@ class VideoPreviewComponent(ctk.CTkFrame):
                     justify=tk.CENTER
                 )
     
-    def update_cut_info(self, cut_data):
-        """Update the display with selected cut information and load cut preview"""
-        self.selected_cut = cut_data
-        
-        if cut_data:
-            self.start_time_label.configure(text=cut_data.get("start_time", "00:00:00"))
-            self.end_time_label.configure(text=cut_data.get("end_time", "00:00:00"))
-            self.duration_label.configure(text=cut_data.get("duration", "00:00:00"))
-            
-            # Update entries
-            self.title_entry.delete(0, "end")
-            self.title_entry.insert(0, cut_data.get("title", ""))
-            
-            self.desc_entry.delete(0, "end")
-            self.desc_entry.insert(0, cut_data.get("description", ""))
-            
-            # Load cut preview if video is available
-            if self.video_capture and self.video_capture.isOpened():
-                self.load_cut_preview(cut_data)
-    
-    def release_video(self):
-        """Release video resources"""
-        if self.video_capture:
-            try:
-                self.video_capture.release()
-            except:
-                pass
-        self.current_photo_image = None
-        self.show_placeholder()
-
     # Event handlers (UI only for now)
     def on_export_single(self):
         """Handle export single cut"""
@@ -968,17 +1466,6 @@ class VideoPreviewComponent(ctk.CTkFrame):
             return
         
         print(f"📊 Found {len(cuts_data)} cuts for batch export")
-        
-        # Import here to avoid circular imports
-        from .progress_dialog import ProgressDialog
-        
-        # Create and show export dialog with real data
-        dialog = ProgressDialog(
-            parent=self.winfo_toplevel(),
-            video_path=self.video_path,
-            cuts_data=cuts_data,
-            quality="original"
-        )
         
         # Import here to avoid circular imports
         from .progress_dialog import ProgressDialog
@@ -1205,3 +1692,94 @@ class VideoPreviewComponent(ctk.CTkFrame):
             print(f"🛑 Audio stopped")
         except Exception as e:
             print(f"⚠️ Error stopping audio: {e}")
+    
+    def on_entry_click(self, time_type: str):
+        """Handle when entry is clicked to track focus"""
+        self.last_focused_entry = time_type
+        # print(f"🎯 Entry clicked: {time_type}")
+
+    def on_focus_out(self, time_type: str):
+        """Handle when entry loses focus - with delayed check"""
+        # print(f"⚡ Focus out triggered for: {time_type}")
+        if self.focus_check_after_id:
+            self.after_cancel(self.focus_check_after_id)
+        self.focus_check_after_id = self.after(100, lambda: self.check_and_save_focus_out(time_type))
+
+    def check_and_save_focus_out(self, time_type: str):
+        """Check if focus truly moved away and save if needed"""
+        try:
+            focused_widget = self.focus_get()
+            # print(f"🔍 Focus check - current widget: {focused_widget}")
+            should_save = True
+            if time_type == "start":
+                should_save = focused_widget != self.start_time_entry
+            elif time_type == "end":
+                should_save = focused_widget != self.end_time_entry
+            if focused_widget == self.start_time_entry or focused_widget == self.end_time_entry:
+                should_save = False
+            if focused_widget == self.save_cut_btn or focused_widget == self.reset_cut_btn:
+                should_save = False
+            if time_type == "start" and not self.editing_start_time:
+                should_save = False
+            elif time_type == "end" and not self.editing_end_time:
+                should_save = False
+            if should_save:
+                self.save_time_edit(time_type)
+            # else:
+            #     print(f"⏸️ Skipped auto-save for: {time_type}")
+        except Exception as e:
+            print(f"⚠️ Error in focus check: {e}")
+        finally:
+            self.focus_check_after_id = None
+    
+    def setup_global_click_binding(self):
+        """Setup global click binding to catch clicks outside entries for auto-save"""
+        # Bind to the main window to catch all clicks
+        main_window = self.winfo_toplevel()
+        main_window.bind("<Button-1>", self.on_global_click, add=True)
+        
+        # Also bind to this component specifically
+        self.bind("<Button-1>", self.on_global_click, add=True)
+
+    def on_global_click(self, event):
+        """Handle global clicks to save entries when clicking elsewhere"""
+        if not self.is_editing_cut:
+            return
+            
+        try:
+            # Get the widget that was clicked
+            clicked_widget = event.widget
+            
+            # List of widgets where clicking should NOT trigger auto-save
+            excluded_widgets = [
+                self.start_time_entry,
+                self.end_time_entry, 
+                self.save_cut_btn,
+                self.reset_cut_btn
+            ]
+            
+            # Check if the clicked widget is one we should ignore
+            should_save = True
+            for widget in excluded_widgets:
+                if clicked_widget == widget:
+                    should_save = False
+                    break
+                    
+                # Also check if clicked widget is a child of excluded widgets
+                try:
+                    if str(clicked_widget).startswith(str(widget)):
+                        should_save = False
+                        break
+                except:
+                    pass
+            
+            if should_save:
+                # Auto-save any active editing fields
+                if self.editing_start_time:
+                    self.after_idle(lambda: self.save_time_edit("start"))
+                    
+                if self.editing_end_time:
+                    self.after_idle(lambda: self.save_time_edit("end"))
+                    
+        except Exception as e:
+            print(f"⚠️ Error in global click handler: {e}")
