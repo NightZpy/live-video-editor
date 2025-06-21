@@ -1207,12 +1207,21 @@ class VideoPreviewComponent(ctk.CTkFrame):
         self.is_editing_cut = False
         self.edit_controls_frame.grid_remove()
         
-        # Update video preview to new cut times
+        # Only update time display without reloading the video preview
+        # (The video frame doesn't need to change, just the time info)
         if self.video_capture and self.video_capture.isOpened():
-            self.load_cut_preview(self.selected_cut)
+            # Update time display for the new cut duration
+            start_seconds = self.parse_time_to_seconds(new_start_time)
+            end_seconds = self.parse_time_to_seconds(new_end_time)
+            cut_duration = end_seconds - start_seconds
+            self.update_time_display(0, cut_duration)  # Start at 0 relative to cut
         
         # Notify cuts list component about the change (if available)
-        self.notify_cut_data_changed()
+        # Note: This may cause visual refresh - could be disabled if not critical
+        try:
+            self.notify_cut_data_changed()
+        except Exception as e:
+            print(f"⚠️ Non-critical error notifying cuts list: {e}")
         
         print(f"💾 Cut changes saved: {new_start_time} - {new_end_time} (duration: {duration_str})")
         print(f"📊 Updated cut data: start_time={self.selected_cut['start_time']}, end_time={self.selected_cut['end_time']}")
@@ -1269,18 +1278,22 @@ class VideoPreviewComponent(ctk.CTkFrame):
             if hasattr(main_window, 'main_editor') and hasattr(main_window.main_editor, 'cuts_list'):
                 cuts_list_component = main_window.main_editor.cuts_list
                 
-                # Find the index of current cut in the cuts_data
+                # Find the index of current cut in the cuts_data and update only that specific item
                 if hasattr(cuts_list_component, 'cuts_data') and self.selected_cut:
                     for i, cut in enumerate(cuts_list_component.cuts_data):
                         if cut is self.selected_cut:  # Same object reference
-                            # Refresh the cuts list display
-                            if hasattr(cuts_list_component, 'refresh_cut_display'):
+                            # Try to update only the specific cut item rather than refreshing everything
+                            if hasattr(cuts_list_component, 'update_cut_display'):
+                                cuts_list_component.update_cut_display(i, self.selected_cut)
+                            elif hasattr(cuts_list_component, 'refresh_cut_display'):
                                 cuts_list_component.refresh_cut_display(i)
-                            elif hasattr(cuts_list_component, 'load_cuts'):
+                            else:
+                                # Last resort: refresh all (causes the visual refresh issue)
+                                print("⚠️ Using full refresh - may cause visual glitch")
                                 cuts_list_component.load_cuts(cuts_list_component.cuts_data)
                             break
                 
-                print("📋 Notified cuts list about data changes")
+                print("📋 Notified cuts list about data changes (optimized)")
             else:
                 print("⚠️ Could not find cuts list component to notify")
                 
