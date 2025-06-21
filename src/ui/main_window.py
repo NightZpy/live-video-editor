@@ -137,10 +137,24 @@ class MainWindow(ctk.CTk):
         # Convert loaded cuts data to the format expected by MainEditorComponent
         cuts_data = self._convert_cuts_data_for_editor(self.loaded_cuts_data)
         
+        # Create thumbnail cache for video frames
+        thumbnail_cache = None
+        if self.loaded_video_info and cuts_data:
+            from ..utils.thumbnail_cache import create_thumbnail_cache
+            video_path = self.loaded_video_info.get('file_path')
+            if video_path:
+                print(f"🎬 Creating frame cache for {len(cuts_data)} cuts...")
+                thumbnail_cache = create_thumbnail_cache(video_path, cuts_data)
+                if thumbnail_cache:
+                    print(f"✅ Frame cache created successfully")
+                else:
+                    print("⚠️ Failed to create frame cache, using fallback icons")
+        
         main_editor = MainEditorComponent(
             self.content_frame, 
             cuts_data=cuts_data,
-            video_info=self.loaded_video_info
+            video_info=self.loaded_video_info,
+            thumbnail_cache=thumbnail_cache
         )
         main_editor.grid(row=0, column=0, sticky="nsew")
         

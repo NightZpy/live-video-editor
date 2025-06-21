@@ -12,7 +12,7 @@ from PIL import Image, ImageTk
 from ..styles.theme import get_frame_style, get_text_style, get_button_style, COLORS, SPACING
 
 class VideoPreviewComponent(ctk.CTkFrame):
-    def __init__(self, parent, **kwargs):
+    def __init__(self, parent, thumbnail_cache=None, **kwargs):
         super().__init__(parent, **kwargs)
         
         # Configure grid
@@ -25,6 +25,9 @@ class VideoPreviewComponent(ctk.CTkFrame):
         # Video data
         self.video_path: Optional[str] = None
         self.video_info: Optional[dict] = None
+        
+        # Thumbnail cache for shared frames
+        self.thumbnail_cache = thumbnail_cache
         
         # UI state
         self.info_panel_expanded = False  # Default closed
@@ -809,18 +812,33 @@ class VideoPreviewComponent(ctk.CTkFrame):
             start_time = self.parse_time_to_seconds(cut_data.get("start_time", "00:00:00"))
             end_time = self.parse_time_to_seconds(cut_data.get("end_time", "00:00:00"))
             
-            # Seek to start of cut - this will show the frame at that position
-            start_frame = int(start_time * self.video_capture.get(cv2.CAP_PROP_FPS))
-            self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+            # Try to get frame from cache first
+            frame_image = None
+            if self.thumbnail_cache:
+                start_time_str = cut_data.get("start_time", cut_data.get("start", "00:00:00"))
+                cached_frame = self.thumbnail_cache.get_thumbnail(start_time_str)
+                if cached_frame:
+                    frame_image = cached_frame
+                    print(f"✅ Using cached frame for {start_time_str}")
             
-            # Read and display the first frame of the cut
-            ret, frame = self.video_capture.read()
-            if ret:
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                frame_image = Image.fromarray(frame_rgb)
-                self.display_frame(frame_image)
-                # Reset to the start frame position for playback
+            # If no cached frame, extract from video
+            if not frame_image:
+                # Seek to start of cut - this will show the frame at that position
+                start_frame = int(start_time * self.video_capture.get(cv2.CAP_PROP_FPS))
                 self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+                
+                # Read and display the first frame of the cut
+                ret, frame = self.video_capture.read()
+                if ret:
+                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    frame_image = Image.fromarray(frame_rgb)
+                    print(f"📺 Extracted frame from video for {start_time}s")
+                    # Reset to the start frame position for playback
+                    self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+            
+            # Display the frame
+            if frame_image:
+                self.display_frame(frame_image)
             
             # Enable playback controls now that we have a cut selected
             self.set_controls_enabled(True)

@@ -4,15 +4,18 @@ Main Editor - Left Panel with Cuts List
 """
 
 import customtkinter as ctk
+import tkinter as tk
+from PIL import Image, ImageTk
 from ..styles.theme import get_frame_style, get_text_style, get_button_style, COLORS, SPACING
 
 class CutsListComponent(ctk.CTkFrame):
-    def __init__(self, parent, on_cut_selected=None, video_info=None, **kwargs):
+    def __init__(self, parent, on_cut_selected=None, video_info=None, thumbnail_cache=None, **kwargs):
         super().__init__(parent, **kwargs)
         
         # Callback for when a cut is selected
         self.on_cut_selected = on_cut_selected
         self.video_info = video_info
+        self.thumbnail_cache = thumbnail_cache
         
         # Configure grid
         self.grid_columnconfigure(0, weight=1)
@@ -119,12 +122,12 @@ class CutsListComponent(ctk.CTkFrame):
         )
         cut_frame.grid(row=index, column=0, sticky="ew", padx=SPACING["sm"], pady=SPACING["sm"])
         cut_frame.grid_columnconfigure(1, weight=1)
-        
+
         # Store reference and add click binding
         self.cut_widgets.append(cut_frame)
         cut_frame.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
-        
-        # Thumbnail with type indicator
+
+        # Thumbnail with real video frame
         thumbnail = ctk.CTkFrame(
             cut_frame,
             width=80,
@@ -134,61 +137,75 @@ class CutsListComponent(ctk.CTkFrame):
         )
         thumbnail.grid(row=0, column=0, rowspan=3, padx=SPACING["md"], pady=SPACING["md"], sticky="ns")
         thumbnail.grid_propagate(False)
-        
-        # Type-based thumbnail icon
-        # Map content_type from JSON to internal type system
-        content_type = cut_data.get("content_type", "unknown")
-        cut_type = cut_data.get("type", self._map_content_type_to_type(content_type))
-        
-        if cut_type == "major_theme":
-            thumb_icon_text = "📚"  # Book for major themes (15+ minutes)
-            thumb_color = COLORS["accent"]  # Use accent color (blue)
-        elif cut_type == "thematic_segment":
-            thumb_icon_text = "📖"  # Open book for thematic segments (5-15 minutes)
-            thumb_color = COLORS["accent"]  # Use accent color
-        elif cut_type == "standard_clip":
-            thumb_icon_text = "🎬"  # Film for standard clips (61s - 5min)
-            thumb_color = COLORS["success"]  # Use success color (green)
-        elif cut_type == "quick_insight":
-            thumb_icon_text = "⚡"  # Lightning for quick insights (15-60s)
-            thumb_color = COLORS["warning"]  # Use warning color (orange)
+
+        # Try to get real video thumbnail
+        thumbnail_image = None
+        if self.thumbnail_cache:
+            start_time = cut_data.get("start_time", cut_data.get("start", "00:00:00"))
+            thumbnail_image = self.thumbnail_cache.get_thumbnail(start_time)
+
+        if thumbnail_image:
+            try:
+                # Resize original frame to thumbnail size (80x60)
+                thumbnail_resized = thumbnail_image.resize((80, 60), Image.Resampling.LANCZOS)
+                photo_image = ImageTk.PhotoImage(thumbnail_resized)
+                thumb_label = tk.Label(
+                    thumbnail,
+                    image=photo_image,
+                    bg=COLORS["input_bg"],
+                    bd=0,
+                    highlightthickness=0
+                )
+                # Store reference to prevent garbage collection
+                if not hasattr(self, '_photo_images'):
+                    self._photo_images = []
+                self._photo_images.append(photo_image)
+                thumb_label.place(relx=0.5, rely=0.5, anchor="center")
+                thumb_label.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
+            except Exception as e:
+                print(f"⚠️ Error displaying thumbnail: {e}")
+                self._create_fallback_thumbnail_icon(thumbnail, cut_data, index)
         else:
-            thumb_icon_text = "🎥"  # Default video camera icon
-            thumb_color = COLORS["text_secondary"]
-            
-        thumb_icon = ctk.CTkLabel(
-            thumbnail,
-            text=thumb_icon_text,
-            font=("Segoe UI", 20),
-            text_color=thumb_color
-        )
-        thumb_icon.grid(row=0, column=0, sticky="nsew")
-        thumb_icon.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
-        
+            self._create_fallback_thumbnail_icon(thumbnail, cut_data, index)
+
         # Cut information
         info_frame = ctk.CTkFrame(cut_frame, fg_color="transparent")
         info_frame.grid(row=0, column=1, columnspan=2, sticky="ew", padx=(0, SPACING["md"]), pady=SPACING["sm"])
         info_frame.grid_columnconfigure(0, weight=1)
-        
-        # Title with type badge
+
+        # Title with type icon as prefix
         title_frame = ctk.CTkFrame(info_frame, fg_color="transparent")
         title_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(SPACING["sm"], SPACING["xs"]))
         title_frame.grid_columnconfigure(0, weight=1)
-        
+
         title_style = get_text_style("default")
+        # Get icon for type
+        content_type = cut_data.get("content_type", "unknown")
+        cut_type = cut_data.get("type", self._map_content_type_to_type(content_type))
+        if cut_type == "major_theme":
+            thumb_icon_text = "📚"
+        elif cut_type == "thematic_segment":
+            thumb_icon_text = "📖"
+        elif cut_type == "standard_clip":
+            thumb_icon_text = "🎬"
+        elif cut_type == "quick_insight":
+            thumb_icon_text = "⚡"
+        else:
+            thumb_icon_text = "🎥"
+        # Title with icon prefix
+        title_with_icon = f"{thumb_icon_text} {cut_data.get('title', f'Cut {index + 1}') }"
         title_label = ctk.CTkLabel(
             title_frame,
-            text=cut_data.get("title", f"Cut {index + 1}"),
+            text=title_with_icon,
             **title_style
         )
         title_label.grid(row=0, column=0, sticky="w")
         title_label.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
-        
-        # Type badge
+
+        # Type badge (opcional, solo para algunos tipos)
         if cut_type in ["major_theme", "highlight_clip"]:
             badge_text = "THEME" if cut_type == "major_theme" else "CLIP"
             badge_color = COLORS["accent"] if cut_type == "major_theme" else COLORS["accent"]
-            
             type_badge = ctk.CTkLabel(
                 title_frame,
                 text=badge_text,
@@ -201,78 +218,29 @@ class CutsListComponent(ctk.CTkFrame):
             )
             type_badge.grid(row=0, column=1, sticky="e", padx=(SPACING["sm"], 0))
             type_badge.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
-        
-        # Time range and duration row
-        time_frame = ctk.CTkFrame(info_frame, fg_color="transparent") 
-        time_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=SPACING["xs"])
-        time_frame.grid_columnconfigure(0, weight=1)
-        
-        time_style = get_text_style("small")
-        start_time = cut_data.get("start_time", cut_data.get("start", "00:00:00"))
-        end_time = cut_data.get("end_time", cut_data.get("end", "00:00:00"))
-        duration = cut_data.get("duration", "00:00:00")
-        
-        time_label = ctk.CTkLabel(
-            time_frame,
-            text=f"{start_time} - {end_time}",
-            **time_style
-        )
-        time_label.grid(row=0, column=0, sticky="w")
-        time_label.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
-        
-        duration_label = ctk.CTkLabel(
-            time_frame,
-            text=f"• {duration}",
-            **time_style
-        )
-        duration_label.grid(row=0, column=1, sticky="e")
-        duration_label.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
-        
-        # Social media value and status row
-        bottom_frame = ctk.CTkFrame(info_frame, fg_color="transparent")
-        bottom_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(SPACING["xs"], SPACING["sm"]))
-        bottom_frame.grid_columnconfigure(0, weight=1)
-        
-        # Social media value indicator (mapped from quality_score)
-        social_value = cut_data.get("social_media_value", "unknown")
-        # Handle both the AI quality_score values and our UI expected values
-        if social_value in ["high", "🔥 High Value"]:
-            value_text = "🔥 High Value"
-            value_color = COLORS["success"]
-        elif social_value in ["medium", "👍 Medium Value"]:
-            value_text = "👍 Medium Value"
-            value_color = COLORS["warning"]
-        elif social_value in ["low", "📝 Low Value"]:
-            value_text = "📝 Low Value"
-            value_color = COLORS["text_secondary"]
+
+    def _create_fallback_thumbnail_icon(self, parent, cut_data, index):
+        """Fallback: show icon in thumbnail area if no real frame available"""
+        content_type = cut_data.get("content_type", "unknown")
+        cut_type = cut_data.get("type", self._map_content_type_to_type(content_type))
+        if cut_type == "major_theme":
+            thumb_icon_text = "📚"
+        elif cut_type == "thematic_segment":
+            thumb_icon_text = "📖"
+        elif cut_type == "standard_clip":
+            thumb_icon_text = "🎬"
+        elif cut_type == "quick_insight":
+            thumb_icon_text = "⚡"
         else:
-            value_text = "❓ Unknown"
-            value_color = COLORS["text_secondary"]
-            
-        social_value_style = get_text_style("small")
-        # Override text_color from style with our specific color
-        social_value_style_custom = social_value_style.copy()
-        social_value_style_custom["text_color"] = value_color
-        
-        social_value_label = ctk.CTkLabel(
-            bottom_frame,
-            text=value_text,
-            **social_value_style_custom
+            thumb_icon_text = "🎥"
+        icon_label = ctk.CTkLabel(
+            parent,
+            text=thumb_icon_text,
+            font=("Segoe UI", 28),
+            text_color=COLORS["text_secondary"]
         )
-        social_value_label.grid(row=0, column=0, sticky="w")
-        social_value_label.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
-        
-        # Status indicator
-        status = cut_data.get("status", "ready")
-        status_color = COLORS["success"] if status == "ready" else COLORS["warning"]
-        status_label = ctk.CTkLabel(
-            bottom_frame,
-            text=f"● {status.title()}",
-            text_color=status_color,
-            font=("Segoe UI", 12)
-        )
-        status_label.grid(row=0, column=1, sticky="e")
-        status_label.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
+        icon_label.place(relx=0.5, rely=0.5, anchor="center")
+        icon_label.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
     
     def select_cut(self, index):
         """Select a cut and update visual feedback"""

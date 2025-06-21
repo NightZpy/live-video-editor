@@ -9,7 +9,7 @@ from .cuts_list import CutsListComponent
 from .video_preview import VideoPreviewComponent
 
 class MainEditorComponent(ctk.CTkFrame):
-    def __init__(self, parent, cuts_data=None, video_info=None, **kwargs):
+    def __init__(self, parent, cuts_data=None, video_info=None, thumbnail_cache=None, **kwargs):
         super().__init__(parent, **kwargs)
         
         # Configure grid - 30/70 split
@@ -17,9 +17,10 @@ class MainEditorComponent(ctk.CTkFrame):
         self.grid_columnconfigure(1, weight=7)  # Right panel (70%)
         self.grid_rowconfigure(0, weight=1)
         
-        # Store cuts data and video info
+        # Store cuts data, video info, and thumbnail cache
         self.cuts_data = cuts_data or []
         self.video_info = video_info
+        self.thumbnail_cache = thumbnail_cache
         
         # Setup UI first
         self.setup_ui()
@@ -51,7 +52,8 @@ class MainEditorComponent(ctk.CTkFrame):
         self.cuts_list = CutsListComponent(
             cuts_panel,
             on_cut_selected=self.on_cut_selected,
-            video_info=self.video_info
+            video_info=self.video_info,
+            thumbnail_cache=self.thumbnail_cache
         )
         self.cuts_list.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
     
@@ -64,7 +66,10 @@ class MainEditorComponent(ctk.CTkFrame):
         preview_panel.grid_rowconfigure(0, weight=1)
         
         # Video preview component
-        self.video_preview = VideoPreviewComponent(preview_panel)
+        self.video_preview = VideoPreviewComponent(
+            preview_panel,
+            thumbnail_cache=self.thumbnail_cache
+        )
         self.video_preview.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
         
         # Load video if video_info is available
