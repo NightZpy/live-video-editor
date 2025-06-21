@@ -36,6 +36,8 @@ class CutsProcessor:
         self.llm_processor = LLMProcessor(api_key=api_key)
         self.prompt_loader = PromptLoader(prompts_dir=prompts_dir)
         
+        self._transcription_data: Dict
+        
         # Cache manager (create if not provided)
         if cache_manager:
             self.cache_manager = cache_manager
@@ -85,19 +87,19 @@ class CutsProcessor:
                 progress_callback("Verificando transcripción...", 10)
             
             # 2. Obtener transcripción (verificar cache primero)
-            transcription_data = self._get_or_create_transcription(video_path, video_info, progress_callback)
+            self._transcription_data = self._get_or_create_transcription(video_path, video_info, progress_callback)
             
             if progress_callback:
                 progress_callback("Verificando análisis de temas...", 30)
             
             # 3. Obtener análisis de temas (verificar cache primero) - NUEVO
-            topics_result = self._get_or_create_topics(video_path, transcription_data, video_info, progress_callback)
+            topics_result = self._get_or_create_topics(video_path, self._transcription_data, video_info, progress_callback)
             
             if progress_callback:
                 progress_callback("Generando cortes precisos...", 60)
             
             # 4. Generar cortes basados en temas - NUEVO con temas
-            cuts_result = self._get_or_create_cuts(video_path, topics_result, transcription_data, video_info, progress_callback)
+            cuts_result = self._get_or_create_cuts(video_path, topics_result, self._transcription_data, video_info, progress_callback)
             
             if progress_callback:
                 progress_callback("Procesamiento completado", 100)
@@ -116,6 +118,9 @@ class CutsProcessor:
             if progress_callback:
                 progress_callback(f"Error: {error_msg}", -1)
             raise
+
+    def get_transcription(self) -> Dict:
+        return self._transcription_data
 
     def _get_or_create_transcription(self, 
                                    video_path: str, 

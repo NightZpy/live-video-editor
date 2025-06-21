@@ -220,9 +220,6 @@ class LLMCutsProcessor:
                     cache_manager=self.cache_manager
                 )
                 
-                # Get or create transcription
-                transcription_data = self._get_or_create_transcription(video_path, video_info)
-                
                 if self.is_cancelled:
                     print(f"⚠️ Processing was cancelled during transcription")
                     return
@@ -238,6 +235,9 @@ class LLMCutsProcessor:
                     print(f"⚠️ Processing was cancelled during cuts generation")
                     return
                 
+                # Get or create transcription
+                transcription_data = cuts_processor.get_transcription()
+
                 # Convert to expected format for UI compatibility
                 result = self._format_result_for_ui(cuts, transcription_data, video_info)
                 
