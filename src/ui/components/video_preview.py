@@ -1188,6 +1188,9 @@ class VideoPreviewComponent(ctk.CTkFrame):
             )
             return
         
+        # Get original start time for comparison
+        original_start_time = self.original_cut_data.get("start_time", "00:00:00")
+        
         # Update selected cut data
         self.selected_cut["start_time"] = new_start_time
         self.selected_cut["end_time"] = new_end_time
@@ -1198,6 +1201,22 @@ class VideoPreviewComponent(ctk.CTkFrame):
         duration_seconds = end_seconds - start_seconds
         duration_str = self.seconds_to_time_string_precise(duration_seconds)
         self.selected_cut["duration"] = duration_str
+        
+        # Check if start time changed and regenerate thumbnail if needed
+        if original_start_time != new_start_time and self.thumbnail_cache:
+            print(f"🔄 Start time changed from {original_start_time} to {new_start_time}, regenerating thumbnail...")
+            
+            # Remove old thumbnail if it exists
+            self.thumbnail_cache.remove_thumbnail(original_start_time)
+            
+            # Generate new thumbnail
+            success = self.thumbnail_cache.regenerate_thumbnail(new_start_time)
+            if success:
+                print(f"✅ Thumbnail regenerated for new time {new_start_time}")
+                # Notify cuts list to update the thumbnail display
+                self.notify_thumbnail_updated()
+            else:
+                print(f"⚠️ Failed to regenerate thumbnail for {new_start_time}")
         
         # Update all displays with the new values
         self.start_time_label.configure(text=new_start_time)
@@ -1318,99 +1337,24 @@ class VideoPreviewComponent(ctk.CTkFrame):
         except Exception as e:
             print(f"⚠️ Error notifying cut data change: {e}")
     
-    # === Updated Methods ===
-    
-    def update_cut_info(self, cut_data):
-        """Update the display with selected cut information and load cut preview"""
-        # Clear any existing editing state first
-        self.cancel_all_editing()
-        
-        self.selected_cut = cut_data
-        
-        if cut_data:
-            # Store original data for reset functionality
-            self.original_cut_data = cut_data.copy()
-            
-            # Update time displays
-            self.start_time_label.configure(text=cut_data.get("start_time", "00:00:00"))
-            self.end_time_label.configure(text=cut_data.get("end_time", "00:00:00"))
-            self.duration_label.configure(text=cut_data.get("duration", "00:00:00"))
-            
-            # Update entries
-            self.title_entry.delete(0, "end")
-            self.title_entry.insert(0, cut_data.get("title", ""))
-            
-            self.desc_entry.delete(0, "end")
-            self.desc_entry.insert(0, cut_data.get("description", ""))
-            
-            # Load cut preview if video is available
-            if self.video_capture and self.video_capture.isOpened():
-                self.load_cut_preview(cut_data)
-        else:
-            # Clear all data
-            self.original_cut_data = None
-            self.start_time_label.configure(text="00:00:00")
-            self.end_time_label.configure(text="00:00:00")
-            self.duration_label.configure(text="00:00:00")
-            self.title_entry.delete(0, "end")
-            self.desc_entry.delete(0, "end")
-    
-    def cancel_all_editing(self):
-        """Cancel any active editing and reset UI to display mode"""
-        if self.editing_start_time:
-            self.start_time_entry.grid_remove()
-            self.start_time_label.grid(row=0, column=0, sticky="w")
-            self.editing_start_time = False
-        
-        if self.editing_end_time:
-            self.end_time_entry.grid_remove()
-            self.end_time_label.grid(row=0, column=0, sticky="w")
-            self.editing_end_time = False
-        
-        if self.is_editing_cut:
-            self.is_editing_cut = False
-            self.edit_controls_frame.grid_remove()
-            self.status_label.configure(text="")
-    
-    def release_video(self):
-        """Release video resources"""
-        if self.video_capture:
-            try:
-                self.video_capture.release()
-            except:
-                pass
-        self.current_photo_image = None
-        self.show_placeholder()
-    
-    def show_placeholder(self, message: str = "Video Preview\n(Select a cut to view)"):
-        """
-        Show placeholder message in video canvas
-        
-        Args:
-            message: Message to display
-        """
-        if not self.video_canvas:
-            return
-        
-        # Clear any video frames
-        self.video_canvas.delete("video_frame")
-        
-        # Show/update placeholder text
-        if hasattr(self, 'placeholder_text_id'):
-            self.video_canvas.itemconfig(self.placeholder_text_id, text=message, state='normal')
-        else:
-            canvas_width = self.video_canvas.winfo_width()
-            canvas_height = self.video_canvas.winfo_height()
-            
-            if canvas_width > 1 and canvas_height > 1:
-                self.placeholder_text_id = self.video_canvas.create_text(
-                    canvas_width//2, canvas_height//2,
-                    text=message,
-                    fill=COLORS["text_secondary"],
-                    font=("Segoe UI", 14),
-                    justify=tk.CENTER
-                )
-    
+    def notify_thumbnail_updated(self):
+        """Notify the cuts list component that a thumbnail was updated"""
+        try:
+            # Find the main window and cuts list component
+            main_window = self.winfo_toplevel()
+            if hasattr(main_window, 'main_editor') and hasattr(main_window.main_editor, 'cuts_list'):
+                cuts_list_component = main_window.main_editor.cuts_list
+                # Trigger a refresh of the current selected cut's thumbnail
+                if hasattr(cuts_list_component, 'refresh_cut_thumbnail') and cuts_list_component.selected_cut_id is not None:
+                    cuts_list_component.refresh_cut_thumbnail(cuts_list_component.selected_cut_id)
+                    print("🔄 Notified cuts list to refresh thumbnail")
+                else:
+                    print("⚠️ Cuts list doesn't support thumbnail refresh or no cut selected")
+            else:
+                print("⚠️ Could not find cuts list component for thumbnail notification")
+        except Exception as e:
+            print(f"❌ Error notifying thumbnail update: {e}")
+
     # Event handlers (UI only for now)
     def on_export_single(self):
         """Handle export single cut"""
@@ -1814,3 +1758,77 @@ class VideoPreviewComponent(ctk.CTkFrame):
                     
         except Exception as e:
             print(f"⚠️ Error in global click handler: {e}")
+    
+    def show_placeholder(self):
+        """Display a placeholder in the video preview area when no video is loaded."""
+        if hasattr(self, 'video_canvas') and self.video_canvas:
+            # Clear canvas
+            self.video_canvas.delete("all")
+            
+            # Get canvas dimensions
+            canvas_width = self.video_canvas.winfo_width()
+            canvas_height = self.video_canvas.winfo_height()
+            
+            # If canvas hasn't been drawn yet, use default dimensions
+            if canvas_width <= 1 or canvas_height <= 1:
+                canvas_width = 400
+                canvas_height = 300
+            
+            # Calculate center position
+            center_x = canvas_width // 2
+            center_y = canvas_height // 2
+            
+            # Add placeholder text
+            self.video_canvas.create_text(
+                center_x, center_y - 20,
+                text="🎥 No video loaded",
+                font=("Segoe UI", 16),
+                fill="gray",
+                anchor="center"
+            )
+            
+            # Add instruction text
+            self.video_canvas.create_text(
+                center_x, center_y + 20,
+                text="Select a cut to preview",
+                font=("Segoe UI", 12),
+                fill="lightgray",
+                anchor="center"
+            )
+    
+    def update_cut_info(self, cut_data):
+        """Update the cut information panel with new cut data"""
+        if cut_data:
+            self.selected_cut = cut_data
+            
+            # Update time labels
+            start_time = cut_data.get("start_time", cut_data.get("start", "00:00:00"))
+            end_time = cut_data.get("end_time", cut_data.get("end", "00:00:00"))
+            
+            self.start_time_label.configure(text=start_time)
+            self.end_time_label.configure(text=end_time)
+            
+            # Update duration label if it exists
+            if hasattr(self, 'duration_label'):
+                duration = cut_data.get("duration", "00:00:00")
+                self.duration_label.configure(text=duration)
+            
+            # Update title and description fields
+            self.title_entry.delete(0, 'end')
+            self.title_entry.insert(0, cut_data.get("title", ""))
+            
+            self.desc_entry.delete(0, 'end')
+            self.desc_entry.insert(0, cut_data.get("description", ""))
+            
+            # Load the cut preview (video frame)
+            self.load_cut_preview(cut_data)
+        else:
+            self.selected_cut = None
+            # Clear all fields
+            self.start_time_label.configure(text="00:00:00")
+            self.end_time_label.configure(text="00:00:00")
+            if hasattr(self, 'duration_label'):
+                self.duration_label.configure(text="00:00:00")
+            self.title_entry.delete(0, 'end')
+            self.desc_entry.delete(0, 'end')
+            self.show_placeholder()

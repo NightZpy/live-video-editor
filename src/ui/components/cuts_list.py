@@ -110,7 +110,7 @@ class CutsListComponent(ctk.CTkFrame):
             widget.destroy()
         self.cut_widgets.clear()
     
-    def create_cut_item(self, cut_data, index):
+    def create_cut_item(self, cut_data, index, thumbnail_override=None):
         """Create a single cut item with enhanced information display"""
         # Main cut frame
         cut_frame = ctk.CTkFrame(
@@ -139,8 +139,8 @@ class CutsListComponent(ctk.CTkFrame):
         thumbnail.grid_propagate(False)
 
         # Try to get real video thumbnail
-        thumbnail_image = None
-        if self.thumbnail_cache:
+        thumbnail_image = thumbnail_override  # Use provided thumbnail if available
+        if thumbnail_image is None and self.thumbnail_cache:
             start_time = cut_data.get("start_time", cut_data.get("start", "00:00:00"))
             thumbnail_image = self.thumbnail_cache.get_thumbnail(start_time)
 
@@ -218,6 +218,8 @@ class CutsListComponent(ctk.CTkFrame):
             )
             type_badge.grid(row=0, column=1, sticky="e", padx=(SPACING["sm"], 0))
             type_badge.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
+            
+        return cut_frame
 
     def _create_fallback_thumbnail_icon(self, parent, cut_data, index):
         """Fallback: show icon in thumbnail area if no real frame available"""
@@ -365,3 +367,45 @@ class CutsListComponent(ctk.CTkFrame):
                 "status": "processing"
             }
         ]
+    
+    def refresh_cut_thumbnail(self, cut_id):
+        """Refresh the thumbnail for a specific cut after it has been regenerated"""
+        try:
+            # Find the cut in cuts_data by ID
+            cut_index = None
+            for i, cut_data in enumerate(self.cuts_data):
+                if cut_data.get('id') == cut_id:
+                    cut_index = i
+                    break
+            
+            if cut_index is not None and cut_index < len(self.cut_widgets):
+                # Force reload the thumbnail from cache and recreate the item
+                if self.thumbnail_cache:
+                    cut_data = self.cuts_data[cut_index]
+                    start_time = cut_data.get('start_time', cut_data.get('start', '00:00:00'))
+                    cached_frame = self.thumbnail_cache.get_thumbnail(start_time)
+                    
+                    if cached_frame is not None:
+                        # Remove the old widget
+                        old_frame = self.cut_widgets[cut_index]
+                        old_frame.destroy()
+                        
+                        # Create new cut item with updated thumbnail
+                        new_cut_frame = self.create_cut_item(cut_data, cut_index, thumbnail_override=cached_frame)
+                        
+                        # Replace in the list
+                        self.cut_widgets[cut_index] = new_cut_frame
+                        
+                        print(f"✅ Refreshed thumbnail for cut {cut_id}")
+                    else:
+                        print(f"⚠️ No cached thumbnail found for cut {cut_id}")
+            else:
+                print(f"⚠️ Cut not found for ID: {cut_id}")
+                
+        except Exception as e:
+            print(f"❌ Error refreshing thumbnail for cut {cut_id}: {e}")
+    
+    def recreate_cut_item(self, cut_frame, new_thumbnail_image):
+        """Recreate a cut item with updated thumbnail"""
+        # This method is now obsolete, functionality moved to refresh_cut_thumbnail
+        pass

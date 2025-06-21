@@ -186,6 +186,64 @@ class ThumbnailCache:
             print(f"❌ Error parsing time '{time_str}': {e}")
             return 0.0
 
+    def regenerate_thumbnail(self, start_time: str) -> bool:
+        """
+        Regenerate a specific thumbnail after time change
+        
+        Args:
+            start_time: New start time in HH:MM:SS format
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            time_seconds = self._parse_time_to_seconds(start_time)
+            
+            # Open video capture
+            cap = cv2.VideoCapture(self.video_path)
+            if not cap.isOpened():
+                print(f"❌ Error: Cannot open video file for regeneration: {self.video_path}")
+                return False
+                
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            if fps <= 0:
+                print(f"❌ Error: Invalid FPS for regeneration: {fps}")
+                cap.release()
+                return False
+            
+            # Extract new frame
+            frame_image = self._extract_frame_at_time(cap, time_seconds, fps)
+            cap.release()
+            
+            if frame_image:
+                with self._lock:
+                    self.cache[time_seconds] = frame_image
+                print(f"🔄 Regenerated frame for {start_time}")
+                return True
+            else:
+                print(f"⚠️ Failed to regenerate frame for {start_time}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error regenerating frame for {start_time}: {e}")
+            return False
+    
+    def remove_thumbnail(self, start_time: str):
+        """
+        Remove a thumbnail from cache (useful for cleanup after time changes)
+        
+        Args:
+            start_time: Time in HH:MM:SS format to remove
+        """
+        try:
+            time_seconds = self._parse_time_to_seconds(start_time)
+            with self._lock:
+                if time_seconds in self.cache:
+                    del self.cache[time_seconds]
+                    print(f"🗑️ Removed old frame for {start_time}")
+        except Exception as e:
+            print(f"❌ Error removing frame for {start_time}: {e}")
+
 
 def create_thumbnail_cache(video_path: str, cuts_data: List[dict]) -> Optional[ThumbnailCache]:
     """
