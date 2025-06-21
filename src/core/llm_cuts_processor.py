@@ -143,6 +143,12 @@ class LLMCutsProcessor:
         self.cache_manager = DataCacheManager()
         print(f"💾 Data cache manager initialized")
         
+        # Audio preview integration
+        self._temp_audio_for_cleanup = None
+        from ..utils.audio_cache_manager import AudioCacheManager
+        self.audio_cache_manager = AudioCacheManager()
+        print(f"🎵 Audio cache manager initialized")
+        
         # Quality and precision settings
         self.prefer_reasoning_models = os.getenv('PREFER_REASONING_MODELS', 'true').lower() == 'true'
         self.enable_advanced_boundary_detection = os.getenv('ENABLE_ADVANCED_BOUNDARY_DETECTION', 'true').lower() == 'true'
@@ -279,6 +285,9 @@ class LLMCutsProcessor:
         # Extract audio
         audio_path = self._extract_audio(video_path)
         
+        # Register temp audio for potential reuse in video preview
+        self._register_temp_audio_for_preview(video_path, audio_path)
+        
         if self.is_cancelled:
             return {}
         
@@ -290,8 +299,9 @@ class LLMCutsProcessor:
         # Cache the result
         self.cache_manager.save_transcription(video_path, transcription_data, video_info)
         
-        # Cleanup temp audio file
-        self._cleanup_temp_file(audio_path)
+        # DON'T cleanup temp audio immediately - let preview component use it
+        # Store path for later cleanup
+        self._temp_audio_for_cleanup = audio_path
         
         return transcription_data
     

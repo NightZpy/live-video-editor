@@ -43,6 +43,11 @@ class VideoPreviewComponent(ctk.CTkFrame):
         self.playback_start_time: Optional[float] = None
         self.expected_frame_time: float = 0.0
         
+        # Audio integration
+        self.audio_cache_manager = None
+        self.current_audio_segment = None
+        self.audio_loading_thread = None
+        
         # Setup UI
         self.setup_ui()
         
@@ -433,13 +438,17 @@ class VideoPreviewComponent(ctk.CTkFrame):
         # Update button text
         self.play_pause_btn.configure(text="⏸️ Pause")
         
+        # Start audio playback if available
+        self._start_audio_playback()
+        
         # Start monitoring playback to auto-stop at cut end
         self.start_cut_monitoring()
         
         # Start the playback loop
         self.play_frame()
         
-        print(f"▶️ Started playback for cut: {self.selected_cut.get('title', 'Unknown')}")
+        audio_status = self._get_audio_status()
+        print(f"▶️ Started playback for cut: {self.selected_cut.get('title', 'Unknown')} (audio: {audio_status})")
     
     def pause_playback(self):
         """Pause video playback"""
@@ -453,6 +462,9 @@ class VideoPreviewComponent(ctk.CTkFrame):
         # Reset timing variables
         self.playback_start_time = None
         self.expected_frame_time = 0.0
+        
+        # Pause audio
+        self._pause_audio_playback()
         
         # Stop monitoring
         self.stop_cut_monitoring()
@@ -476,6 +488,9 @@ class VideoPreviewComponent(ctk.CTkFrame):
         self.expected_frame_time = 0.0
         if hasattr(self, '_frame_count'):
             delattr(self, '_frame_count')
+        
+        # Stop audio
+        self._stop_audio_playback()
         
         # Stop monitoring
         self.stop_cut_monitoring()
@@ -563,7 +578,7 @@ class VideoPreviewComponent(ctk.CTkFrame):
     
     def load_video(self, video_path: str, video_info: Optional[dict] = None):
         """
-        Load video file for preview
+        Load video file for preview with audio integration
         
         Args:
             video_path: Path to the video file
@@ -599,8 +614,61 @@ class VideoPreviewComponent(ctk.CTkFrame):
             print(f"✅ Video loaded successfully: {video_path}")
             print(f"📊 Video FPS: {self.video_fps:.2f}, Frame delay: {self.frame_delay}ms")
             
+            # Initialize audio cache manager for this video
+            self._init_audio_cache_manager()
+            
+            # Start loading audio in background (non-blocking)
+            self._start_audio_loading(video_path)
+            
         except Exception as e:
             print(f"❌ Failed to load video: {video_path} - {e}")
+    
+    def _init_audio_cache_manager(self):
+        """Initialize audio cache manager if not already done"""
+        if self.audio_cache_manager is None:
+            try:
+                from ...utils.audio_cache_manager import AudioCacheManager
+                self.audio_cache_manager = AudioCacheManager()
+                print(f"🎵 Audio cache manager initialized for video preview")
+            except Exception as e:
+                print(f"⚠️ Failed to initialize audio cache manager: {e}")
+                self.audio_cache_manager = None
+    
+    def _start_audio_loading(self, video_path: str):
+        """Start loading audio in background thread"""
+        if self.audio_cache_manager is None:
+            print(f"⚠️ No audio cache manager, skipping audio loading")
+            return
+        
+        try:
+            # Cancel any existing loading
+            if self.audio_loading_thread and self.audio_loading_thread.is_alive():
+                print(f"🎵 Cancelling previous audio loading...")
+            
+            # Start new audio loading
+            self.audio_loading_thread = self.audio_cache_manager.load_audio_for_video(video_path)
+            print(f"🎵 Started background audio loading for: {video_path}")
+            
+        except Exception as e:
+            print(f"⚠️ Failed to start audio loading: {e}")
+    
+    def _is_audio_ready(self) -> bool:
+        """Check if audio is ready for the current video"""
+        if not self.audio_cache_manager or not self.video_path:
+            return False
+        return self.audio_cache_manager.is_audio_ready(self.video_path)
+    
+    def _get_audio_status(self) -> str:
+        """Get current audio loading status"""
+        if not self.audio_cache_manager or not self.video_path:
+            return "no_audio_manager"
+        
+        if self.audio_cache_manager.is_audio_ready(self.video_path):
+            return "ready"
+        elif self.audio_cache_manager.is_loading(self.video_path):
+            return "loading"
+        else:
+            return "not_started"
     
     def load_cut_preview(self, cut_data: dict):
         """
@@ -1022,3 +1090,63 @@ class VideoPreviewComponent(ctk.CTkFrame):
             
         except Exception as e:
             print(f"Error displaying frame: {e}")
+    
+    def _start_audio_playback(self):
+        """Start audio playback for the current cut"""
+        if not self.audio_cache_manager or not self.video_path or not self.selected_cut:
+            print(f"⚠️ Cannot start audio: manager={self.audio_cache_manager is not None}, path={self.video_path is not None}, cut={self.selected_cut is not None}")
+            return
+        
+        try:
+            # Get cut timing
+            start_time = self.parse_time_to_seconds(self.selected_cut.get("start_time", "00:00:00"))
+            end_time = self.parse_time_to_seconds(self.selected_cut.get("end_time", "00:00:00"))
+            duration = end_time - start_time
+            
+            if duration <= 0:
+                print(f"⚠️ Invalid cut duration: {duration}s")
+                return
+            
+            # Create audio segment for this cut
+            self.current_audio_segment = self.audio_cache_manager.create_audio_segment(
+                self.video_path, start_time, duration
+            )
+            
+            if self.current_audio_segment:
+                # Start audio playback
+                self.current_audio_segment.play()
+                print(f"🎵 Audio started for cut: {start_time:.1f}s - {end_time:.1f}s")
+            else:
+                audio_status = self._get_audio_status()
+                print(f"⚠️ Could not create audio segment (status: {audio_status})")
+                
+        except Exception as e:
+            print(f"❌ Error starting audio playback: {e}")
+    
+    def _pause_audio_playback(self):
+        """Pause audio playback"""
+        try:
+            import pygame
+            pygame.mixer.pause()
+            print(f"⏸️ Audio paused")
+        except Exception as e:
+            print(f"⚠️ Error pausing audio: {e}")
+    
+    def _resume_audio_playback(self):
+        """Resume audio playback"""
+        try:
+            import pygame
+            pygame.mixer.unpause()
+            print(f"▶️ Audio resumed")
+        except Exception as e:
+            print(f"⚠️ Error resuming audio: {e}")
+    
+    def _stop_audio_playback(self):
+        """Stop audio playback"""
+        try:
+            import pygame
+            pygame.mixer.stop()
+            self.current_audio_segment = None
+            print(f"🛑 Audio stopped")
+        except Exception as e:
+            print(f"⚠️ Error stopping audio: {e}")

@@ -6,6 +6,10 @@ Pillow>=10.0.1
 openai>=1.35.0
 python-dotenv==1.0.0
 tkinterdnd2>=0.3.0
+pygame>=2.5.0
+
+# Audio playback for video preview
+pygame>=2.5.0
 
 # AI/ML dependencies
 # PyTorch for CPU/NVIDIA GPU (default)

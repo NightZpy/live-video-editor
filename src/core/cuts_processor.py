@@ -101,8 +101,7 @@ class CutsProcessor:
             
             if progress_callback:
                 progress_callback("Procesamiento completado", 100)
-            
-            # Extract cuts list from result
+              # Extract cuts list from result
             cuts = cuts_result.get('cuts', [])
             
             # Cache the final result for future use
@@ -117,13 +116,13 @@ class CutsProcessor:
             if progress_callback:
                 progress_callback(f"Error: {error_msg}", -1)
             raise
-    
+
     def _get_or_create_transcription(self, 
                                    video_path: str, 
                                    video_info: Dict,
                                    progress_callback: Optional[Callable] = None) -> Dict:
         """
-        Get transcription from cache or create new one
+        Get transcription from cache or create new one with audio cache integration
         
         Args:
             video_path: Path to the video file
@@ -143,11 +142,122 @@ class CutsProcessor:
                 print(f"📂 CutsProcessor: Using cached transcription")
                 return transcription_data
         
-        # If no cache, we need to generate transcription
-        # For now, this would require integration with whisper transcriber
-        # This is where we would call the transcription logic
-        print(f"⚠️ CutsProcessor: No transcription cache found - would need to generate")
-        raise Exception("Transcription generation not yet implemented in CutsProcessor. Use LLMCutsProcessor for full pipeline.")
+        # If no cache, generate transcription with audio cache integration
+        print(f"🎙️ CutsProcessor: Generating new transcription with audio cache...")
+        
+        # Initialize audio cache manager for preview integration
+        from ..utils.audio_cache_manager import AudioCacheManager
+        if not hasattr(self, 'audio_cache_manager'):
+            self.audio_cache_manager = AudioCacheManager()
+            print(f"🎵 CutsProcessor: Audio cache manager initialized")
+        
+        # Import transcription components
+        from .whisper_transcriber import WhisperTranscriber
+        import openai
+        import tempfile
+        import ffmpeg
+        
+        # Initialize OpenAI client and Whisper transcriber
+        api_key = self.llm_processor.api_key if hasattr(self.llm_processor, 'api_key') else None
+        if not api_key:
+            api_key = os.getenv('OPENAI_API_KEY')
+            if not api_key:
+                raise ValueError("No OpenAI API key available for transcription")
+        
+        openai_client = openai.OpenAI(api_key=api_key)
+        transcriber = WhisperTranscriber(openai_client)
+        
+        try:
+            if progress_callback:
+                progress_callback("Extrayendo audio del video...", 10)
+            
+            # Extract audio
+            audio_path = self._extract_audio(video_path)
+            print(f"🎵 CutsProcessor: Audio extracted to: {audio_path}")
+            
+            # Register temp audio with audio cache manager for preview use
+            self.audio_cache_manager.register_temp_audio(video_path, audio_path)
+            print(f"📝 CutsProcessor: Registered temp audio for preview: {audio_path}")
+            
+            if progress_callback:
+                progress_callback("Transcribiendo audio...", 30)
+            
+            # Transcribe audio
+            transcription_data = transcriber.transcribe_with_video_info(
+                audio_path, 
+                video_info,
+                progress_callback=progress_callback
+            )
+            
+            print(f"✅ CutsProcessor: Transcription completed")
+            print(f"📝 Text length: {len(transcription_data.get('text', ''))}")
+            
+            # Cache the transcription result
+            self.cache_manager.save_transcription(video_path, transcription_data, video_info)
+            
+            # DON'T cleanup temp audio immediately - let preview component use it
+            # The audio cache manager will handle cleanup when appropriate
+            print(f"💾 CutsProcessor: Transcription cached, temp audio preserved for preview")
+            
+            return transcription_data
+            
+        except Exception as e:
+            print(f"❌ CutsProcessor: Error in transcription generation: {e}")
+            # Cleanup on error
+            if 'audio_path' in locals():
+                try:
+                    os.unlink(audio_path)
+                except:
+                    pass
+            raise Exception(f"Failed to generate transcription: {str(e)}")
+    
+    def _extract_audio(self, video_path: str) -> str:
+        """
+        Extract audio from video using FFmpeg (same method as LLMCutsProcessor)
+        
+        Args:
+            video_path: Path to input video
+            
+        Returns:
+            Path to extracted audio file
+        """
+        print(f"🎵 CutsProcessor: Starting audio extraction from: {video_path}")
+        
+        # Create temporary file for audio
+        import tempfile
+        temp_audio = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        audio_path = temp_audio.name
+        temp_audio.close()
+        
+        print(f"🎵 CutsProcessor: Temporary audio file: {audio_path}")
+        
+        try:
+            import ffmpeg
+            # Extract audio using ffmpeg-python
+            (
+                ffmpeg
+                .input(video_path)
+                .output(
+                    audio_path,
+                    acodec='pcm_s16le',  # 16-bit PCM for Whisper compatibility
+                    ac=1,  # Mono audio
+                    ar='16000'  # 16kHz sample rate (optimal for Whisper)
+                )
+                .overwrite_output()
+                .run(capture_stdout=True, capture_stderr=True, quiet=True)
+            )
+            
+            print(f"✅ CutsProcessor: Audio extraction successful")
+            return audio_path
+            
+        except Exception as e:
+            # Cleanup on error
+            try:
+                os.unlink(audio_path)
+            except:
+                pass
+            print(f"❌ CutsProcessor: Audio extraction failed: {e}")
+            raise Exception(f"Failed to extract audio: {str(e)}")
     
     def _get_or_create_topics(self, 
                              video_path: str,
