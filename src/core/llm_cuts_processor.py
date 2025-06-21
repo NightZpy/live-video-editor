@@ -194,36 +194,153 @@ class LLMCutsProcessor:
     
     def process_video_async(self, video_path: str, video_info: Dict, completion_callback: Callable):
         """
-        Process video asynchronously to generate cuts
+        Process video asynchronously to generate cuts using the new two-phase CutsProcessor
         
         Args:
             video_path: Path to the video file
             video_info: Video metadata 
             completion_callback: Function to call when processing is complete
         """
-        print(f"🔄 Starting async video processing...")
+        print(f"🔄 Starting async video processing with new CutsProcessor...")
         
         def worker():
             try:
                 print(f"🔄 Worker thread started")
-                result = self.process_video_sync_with_cache_check(video_path, video_info)
+                
+                # Import and initialize the new CutsProcessor
+                from .cuts_processor import CutsProcessor
+                cuts_processor = CutsProcessor(
+                    api_key=self.api_key,
+                    cache_manager=self.cache_manager
+                )
+                
+                # Get or create transcription
+                transcription_data = self._get_or_create_transcription(video_path, video_info)
+                
+                if self.is_cancelled:
+                    print(f"⚠️ Processing was cancelled during transcription")
+                    return
+                
+                # Process with new two-phase system
+                cuts = cuts_processor.process(
+                    video_path=video_path,
+                    video_info=video_info,
+                    progress_callback=self._update_progress
+                )
+                
+                if self.is_cancelled:
+                    print(f"⚠️ Processing was cancelled during cuts generation")
+                    return
+                
+                # Convert to expected format for UI compatibility
+                result = self._format_result_for_ui(cuts, transcription_data, video_info)
+                
                 if not self.is_cancelled:
-                    print(f"✅ Processing successful, calling completion callback")
+                    print(f"✅ Processing successful with {len(cuts)} cuts, calling completion callback")
                     completion_callback(True, result, None)
                 else:
                     print(f"⚠️ Processing was cancelled")
+                    
             except Exception as e:
                 print(f"❌ Error in worker thread: {str(e)}")
                 import traceback
                 print(f"❌ Worker thread traceback: {traceback.format_exc()}")
                 if not self.is_cancelled:
                     completion_callback(False, None, str(e))
+
+        # Start background thread
+        import threading
+        worker_thread = threading.Thread(target=worker)
+        worker_thread.daemon = True
+        worker_thread.start()
+    
+    def _get_or_create_transcription(self, video_path: str, video_info: Dict) -> Dict:
+        """
+        Get transcription from cache or create new one
         
-        # Start processing in background thread
-        thread = threading.Thread(target=worker, daemon=True)
-        thread.start()
-        print(f"🔄 Background thread started")
+        Args:
+            video_path: Path to the video file
+            video_info: Video metadata
+            
+        Returns:
+            Transcription data
+        """
+        # Check cache first
+        cached_data = self.cache_manager.load_transcription(video_path)
+        if cached_data:
+            transcription_data, cached_video_info = cached_data
+            print(f"📂 Using cached transcription")
+            return transcription_data
         
+        # Generate new transcription
+        print(f"🎙️ Generating new transcription...")
+        self._update_progress("Extrayendo audio...", 10)
+        
+        # Extract audio
+        audio_path = self._extract_audio(video_path)
+        
+        if self.is_cancelled:
+            return {}
+        
+        self._update_progress("Transcribiendo audio...", 30)
+        
+        # Transcribe
+        transcription_data = self._transcribe_audio(audio_path, video_info)
+        
+        # Cache the result
+        self.cache_manager.save_transcription(video_path, transcription_data, video_info)
+        
+        # Cleanup temp audio file
+        self._cleanup_temp_file(audio_path)
+        
+        return transcription_data
+    
+    def _format_result_for_ui(self, cuts: List[Dict], transcription_data: Dict, video_info: Dict) -> Dict:
+        """
+        Format the cuts result for UI compatibility
+        
+        Args:
+            cuts: List of cuts from CutsProcessor
+            transcription_data: Transcription data
+            video_info: Video metadata
+            
+        Returns:
+            Formatted result for UI
+        """
+        # Convert cuts to expected UI format
+        formatted_cuts = []
+        for cut in cuts:
+            formatted_cut = {
+                "start": cut.get('start'),
+                "end": cut.get('end'),
+                "title": cut.get('title', ''),
+                "description": cut.get('description', ''),
+                "duration": cut.get('duration', ''),
+                "content_type": cut.get('content_type', 'topic_segment'),
+                "quality_score": cut.get('quality_score', 'medium')
+            }
+            formatted_cuts.append(formatted_cut)
+        
+        # Build final result using existing method
+        result = self._build_final_json(formatted_cuts, video_info, video_info.get('filename', ''))
+        
+        # Add transcription info
+        result['transcription'] = {
+            'text': transcription_data.get('text', ''),
+            'language': transcription_data.get('language', 'unknown'),
+            'segments_count': len(transcription_data.get('segments', []))
+        }
+        
+        # Add processing info
+        result['processing_info'] = {
+            'method': 'two_phase_analysis',
+            'phase_1': 'topics_analysis',
+            'phase_2': 'cuts_mapping',
+            'total_cuts': len(formatted_cuts)
+        }
+        
+        return result
+    
     def process_video_with_cache_check(self, video_path: str, video_info: Dict, completion_callback: Callable):
         """
         Process video with intelligent cache checking
@@ -1460,14 +1577,14 @@ Remember: Your goal is to extract EVERY valuable piece of content, ensuring noth
                     end_time = match.group(3) 
                     title = match.group(4)
                     description = match.group(5)
-                    duration = match.group(6) if match.group(6) else None
+                    duration = match.group(6) if match.group(6) else None;
                     
                     # Calculate duration if not provided
                     if not duration:
                         start_seconds = self._timestamp_to_seconds(start_time)
                         end_seconds = self._timestamp_to_seconds(end_time)
                         duration_seconds = end_seconds - start_seconds
-                        duration = self._seconds_to_timestamp(duration_seconds)
+                        duration = self._seconds_to_timestamp(duration_seconds);
                     
                     cut = {
                         "id": cut_id,
@@ -1476,9 +1593,9 @@ Remember: Your goal is to extract EVERY valuable piece of content, ensuring noth
                         "title": title,
                         "description": description,
                         "duration": duration
-                    }
+                    };
                     
-                    cuts.append(cut)
+                    cuts.append(cut);
                     print(f"✅ Extracted cut {cut_id}: {title}")
                     
                 except Exception as e:
@@ -1767,6 +1884,7 @@ Remember: Your goal is to extract EVERY valuable piece of content, ensuring noth
         Args:
             request_params: The request parameters being sent to OpenAI
             model_name: The model being used
+       
         """
         try:
             import json

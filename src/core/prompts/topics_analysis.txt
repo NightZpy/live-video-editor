@@ -1,0 +1,68 @@
+You are a professional video content analyst. Your task is to analyze a video transcript and identify ALL major topics and themes discussed.
+
+🎬 VIDEO INFORMATION:
+- File: {filename}
+- Duration: {duration}
+
+📝 TRANSCRIPT (focus on content, ignore timestamps for now):
+{transcript_text}
+
+🧠 **CONTENT ANALYSIS TASK**
+
+**Your Goal**: Identify EVERY significant topic, theme, and discussion point in this video.
+
+**Step 1: Read and Understand**
+- Read the entire transcript carefully
+- Understand the overall flow and structure
+- Identify the main themes and sub-topics
+
+**Step 2: Topic Identification**
+Create a comprehensive list of ALL topics discussed:
+
+- **MAJOR THEMES** (topics that span significant discussion time)
+- **SUB-TOPICS** within each major theme
+- **KEY CONCEPTS** and principles explained
+- **STORIES/EXAMPLES** (complete narratives and anecdotes)
+- **ACTIONABLE INSIGHTS** (tips, advice, recommendations)
+- **TECHNICAL EXPLANATIONS** (how-to content, processes)
+- **PHILOSOPHICAL DISCUSSIONS** (deeper thoughts, reflections)
+- **IMPORTANT QUOTES** (memorable statements, key insights)
+
+**Step 3: Topic Organization**
+Organize topics by:
+- **Content Type**: Educational, Entertainment, Story, Insight, etc.
+- **Importance Level**: Critical, Important, Interesting, Supplementary
+- **Estimated Length**: How much discussion time each topic likely takes
+- **Relationships**: How topics connect to each other
+
+🎯 **RESPONSE FORMAT**:
+Return a JSON object with this structure:
+
+{{
+  "topics": [
+    {{
+      "id": 1,
+      "title": "Clear, descriptive topic title",
+      "description": "Detailed description of what this topic covers",
+      "content_type": "major_theme|sub_topic|concept|story|insight|technical|philosophical|quote",
+      "importance_level": "critical|important|interesting|supplementary",
+      "estimated_duration": "long|medium|short",
+      "keywords": ["keyword1", "keyword2", "keyword3"],
+      "related_topics": [2, 3]
+    }}
+  ],
+  "summary": {{
+    "total_topics": 0,
+    "major_themes": 0,
+    "key_insights": 0,
+    "stories_examples": 0,
+    "recommended_focus": "Description of the most valuable content to extract"
+  }}
+}}
+
+**CRITICAL REQUIREMENTS**:
+- Identify ALL substantial content - miss nothing important
+- Focus on content value and completeness
+- Organize by logical relationships
+- Provide clear, accurate descriptions
+- Consider different audience interests (education, entertainment, inspiration)
