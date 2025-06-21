@@ -136,21 +136,24 @@ class CutsListComponent(ctk.CTkFrame):
         thumbnail.grid_propagate(False)
         
         # Type-based thumbnail icon
-        cut_type = cut_data.get("type", "unknown")
+        # Map content_type from JSON to internal type system
+        content_type = cut_data.get("content_type", "unknown")
+        cut_type = cut_data.get("type", self._map_content_type_to_type(content_type))
+        
         if cut_type == "major_theme":
             thumb_icon_text = "📚"  # Book for major themes (15+ minutes)
-            thumb_color = COLORS["info"]
+            thumb_color = COLORS["accent"]  # Use accent color (blue)
         elif cut_type == "thematic_segment":
             thumb_icon_text = "📖"  # Open book for thematic segments (5-15 minutes)
-            thumb_color = COLORS["accent"]
+            thumb_color = COLORS["accent"]  # Use accent color
         elif cut_type == "standard_clip":
             thumb_icon_text = "🎬"  # Film for standard clips (61s - 5min)
-            thumb_color = COLORS["success"]
+            thumb_color = COLORS["success"]  # Use success color (green)
         elif cut_type == "quick_insight":
             thumb_icon_text = "⚡"  # Lightning for quick insights (15-60s)
-            thumb_color = COLORS["warning"]
+            thumb_color = COLORS["warning"]  # Use warning color (orange)
         else:
-            thumb_icon_text = "�"  # Default
+            thumb_icon_text = "🎥"  # Default video camera icon
             thumb_color = COLORS["text_secondary"]
             
         thumb_icon = ctk.CTkLabel(
@@ -184,7 +187,7 @@ class CutsListComponent(ctk.CTkFrame):
         # Type badge
         if cut_type in ["major_theme", "highlight_clip"]:
             badge_text = "THEME" if cut_type == "major_theme" else "CLIP"
-            badge_color = COLORS["info"] if cut_type == "major_theme" else COLORS["accent"]
+            badge_color = COLORS["accent"] if cut_type == "major_theme" else COLORS["accent"]
             
             type_badge = ctk.CTkLabel(
                 title_frame,
@@ -230,15 +233,16 @@ class CutsListComponent(ctk.CTkFrame):
         bottom_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(SPACING["xs"], SPACING["sm"]))
         bottom_frame.grid_columnconfigure(0, weight=1)
         
-        # Social media value indicator
+        # Social media value indicator (mapped from quality_score)
         social_value = cut_data.get("social_media_value", "unknown")
-        if social_value == "high":
+        # Handle both the AI quality_score values and our UI expected values
+        if social_value in ["high", "🔥 High Value"]:
             value_text = "🔥 High Value"
             value_color = COLORS["success"]
-        elif social_value == "medium":
+        elif social_value in ["medium", "👍 Medium Value"]:
             value_text = "👍 Medium Value"
             value_color = COLORS["warning"]
-        elif social_value == "low":
+        elif social_value in ["low", "📝 Low Value"]:
             value_text = "📝 Low Value"
             value_color = COLORS["text_secondary"]
         else:
@@ -329,6 +333,30 @@ class CutsListComponent(ctk.CTkFrame):
         
         self.counter_label.configure(text=counter_text)
     
+    def _map_content_type_to_type(self, content_type: str) -> str:
+        """
+        Map content_type from JSON data to internal type system
+        
+        Args:
+            content_type: The content_type from JSON (e.g., "topic_segment", "concept_explanation")
+            
+        Returns:
+            Internal type string (e.g., "major_theme", "thematic_segment")
+        """
+        content_type_mapping = {
+            "topic_segment": "thematic_segment",
+            "concept_explanation": "standard_clip", 
+            "key_moment": "quick_insight",
+            "major_discussion": "major_theme",  # Map major discussions as themes
+            "major_theme": "major_theme",
+            "thematic_segment": "thematic_segment",
+            "standard_clip": "standard_clip",
+            "quick_insight": "quick_insight",
+            "highlight_clip": "standard_clip"
+        }
+        
+        return content_type_mapping.get(content_type, "standard_clip")
+
     def get_mock_cuts_data(self):
         """Generate mock cuts data for testing"""
         return [
