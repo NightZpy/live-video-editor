@@ -25,6 +25,10 @@ class CutTimesInputComponent(ctk.CTkFrame):
         self.is_processing = False
         self.loaded_cuts_data = None
         
+        # Cache state
+        self.has_cached_transcription = False
+        self.cache_status_label = None
+        
         # Configure grid
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -57,14 +61,14 @@ class CutTimesInputComponent(ctk.CTkFrame):
         )
         title_label.grid(row=0, column=0, pady=(SPACING["md"], SPACING["xs"]))
         
-        # Description
+        # Description (save reference for cache status updates)
         desc_style = get_text_style("secondary")
-        desc_label = ctk.CTkLabel(
+        self.desc_label = ctk.CTkLabel(
             title_frame,
             text="Choose how to define the timestamps for your video cuts",
             **desc_style
         )
-        desc_label.grid(row=1, column=0, pady=(0, SPACING["md"]))
+        self.desc_label.grid(row=1, column=0, pady=(0, SPACING["md"]))
     
     def create_content_area(self):
         """Create the main content with three options"""
@@ -285,11 +289,13 @@ class CutTimesInputComponent(ctk.CTkFrame):
             content_frame,
             text="Analyze with AI",
             width=140,
-            state="disabled",  # Initially disabled
             command=self.on_automatic_analysis,
             **auto_btn_style
         )
         self.auto_btn.grid(row=2, column=0, pady=SPACING["sm"])
+        
+        # Check if there's a default API key in environment variables
+        self._update_button_state()
         
         # Info
         info_style = get_text_style("small")
@@ -299,6 +305,42 @@ class CutTimesInputComponent(ctk.CTkFrame):
             **info_style
         )
         info_label.grid(row=3, column=0, pady=(0, SPACING["md"]))
+    
+    def _update_button_state(self):
+        """Update the AI analysis button state based on available API keys"""
+        # Check if there's an API key in the environment
+        env_api_key = os.getenv('OPENAI_API_KEY')
+        print(f"🔑 Environment API key check: {'Found' if env_api_key else 'Not found'}")
+        if env_api_key:
+            print(f"🔑 Environment API key length: {len(env_api_key)}")
+        
+        # Check if there's an API key in the UI field
+        ui_api_key = self.api_key_entry.get().strip() if hasattr(self, 'api_key_entry') else ""
+        print(f"🔑 UI API key check: {'Found' if ui_api_key else 'Not found'} (length: {len(ui_api_key)})")
+        
+        # Enable button if there's either an environment key OR a valid UI key
+        if env_api_key or (ui_api_key and len(ui_api_key) >= 10):
+            self.auto_btn.configure(state="normal")
+            print(f"🟢 AI analysis button ENABLED")
+            if env_api_key and not ui_api_key:
+                # Using environment variable
+                self.api_key_entry.configure(
+                    border_color=COLORS["success"],
+                    placeholder_text="Using environment variable"
+                )
+                print(f"🤖 Environment API key detected - button enabled")
+            elif ui_api_key:
+                # Using UI key
+                self.api_key_entry.configure(border_color=COLORS["success"])
+                print(f"🤖 UI API key detected - button enabled")
+        else:
+            # No valid API key available
+            self.auto_btn.configure(state="disabled")
+            print(f"🔴 AI analysis button DISABLED - no valid API key")
+            self.api_key_entry.configure(
+                border_color=COLORS["border"],
+                placeholder_text="sk-..."
+            )
     
     # Event handlers with real functionality
     def on_browse_file(self):
@@ -384,17 +426,86 @@ class CutTimesInputComponent(ctk.CTkFrame):
     def on_automatic_analysis(self):
         """Handle automatic analysis button click"""
         api_key = self.api_key_entry.get().strip()
-        if api_key:
-            print(f"🤖 Automatic analysis selected with API key")
+        
+        # If no API key provided in UI, pass None to let LLMCutsProcessor use environment variable
+        if not api_key:
+            api_key = None
+            print(f"🤖 No API key in UI, will try environment variable")
+        else:
+            print(f"🤖 Using API key from UI")
+        
+        # Get video info from parent
+        main_window = self.winfo_toplevel()
+        if hasattr(main_window, 'loaded_video_info') and main_window.loaded_video_info:
+            video_info = main_window.loaded_video_info
+            video_path = video_info.get('file_path')
+            
+            if video_path:
+                # Show LLM progress dialog
+                from .llm_progress_dialog import show_llm_progress_dialog
+                show_llm_progress_dialog(
+                    parent=self.winfo_toplevel(),
+                    video_path=video_path,
+                    video_info=video_info,
+                    api_key=api_key,
+                    completion_callback=self.on_llm_analysis_complete
+                )
+            else:
+                print("⚠️ Video file path not found in loaded video info")
+        else:
+            print("⚠️ No video loaded for analysis")
+    
+    def on_llm_analysis_complete(self, success: bool, result: dict):
+        """Handle completion of LLM analysis"""
+        print(f"🎯 Cut times input received LLM completion: success={success}, has_result={result is not None}")
+        
+        if success and result:
+            print("✅ LLM analysis completed successfully")
+            print(f"📊 Generated {len(result.get('cuts', []))} cuts")
+            print(f"📊 Result structure: {type(result)}")
+            print(f"📊 Result keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
+            
+            # Pass the complete result to the callback (same format as manual/file input)
             if self.on_option_selected:
-                self.on_option_selected("automatic_analysis", {"api_key": api_key})
+                print(f"🎯 Calling on_option_selected callback with automatic_analysis and complete data")
+                print(f"🎯 About to advance to main editor with {len(result.get('cuts', []))} cuts")
+                self.on_option_selected("automatic_analysis", result)
+                print(f"✅ on_option_selected callback completed - should advance to main editor")
+            else:
+                print(f"⚠️ No on_option_selected callback set")
+        else:
+            print("❌ LLM analysis failed or was cancelled")
+            print(f"❌ Success: {success}, Result: {result}")
+    
+    def set_cache_status(self, has_transcription: bool):
+        """Establecer estado de caché y actualizar UI"""
+        self.has_cached_transcription = has_transcription
+        self._update_cache_indicators()
+
+    def _update_cache_indicators(self):
+        """Actualizar indicadores visuales de caché"""
+        if self.has_cached_transcription:
+            # Actualizar el subtítulo para mostrar el estado de caché
+            self.desc_label.configure(
+                text="⚡ Transcripción disponible - El análisis IA será más rápido",
+                text_color="green"
+            )
+            
+            # Actualizar botón de IA para indicar proceso más rápido
+            if hasattr(self, 'auto_btn'):
+                original_text = "Analyze with AI"
+                self.auto_btn.configure(text=f"🚀 {original_text} (Rápido)")
+        else:
+            # Restaurar texto original del subtítulo
+            self.desc_label.configure(
+                text="Choose how to define the timestamps for your video cuts"
+            )
+            
+            # Restaurar texto original del botón
+            if hasattr(self, 'auto_btn'):
+                self.auto_btn.configure(text="Analyze with AI")
     
     def on_api_key_change(self, event):
         """Handle API key input change"""
-        api_key = self.api_key_entry.get().strip()
-        if len(api_key) >= 10:  # Basic validation
-            self.auto_btn.configure(state="normal")
-            self.api_key_entry.configure(border_color=COLORS["success"])
-        else:
-            self.auto_btn.configure(state="disabled")
-            self.api_key_entry.configure(border_color=COLORS["border"])
+        # Update button state whenever the key changes
+        self._update_button_state()

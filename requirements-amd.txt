@@ -1,0 +1,24 @@
+# AMD GPU dependencies for live-video-editor
+# Use this file if you have an AMD RX/Vega/NAVI/RDNA GPU and want to use it for Whisper processing
+#
+# Installation instructions:
+# 1. pip uninstall torch torchvision torchaudio  # Remove existing PyTorch
+# 2. pip install -r requirements-amd.txt
+
+# Include base dependencies (excluding PyTorch)
+-r requirements-base-no-torch.txt
+
+# PyTorch with ROCm support for AMD GPUs
+# Using ROCm 5.6 which has better package availability
+--index-url https://download.pytorch.org/whl/rocm5.6
+torch>=2.1.0
+torchvision>=0.16.0
+
+# Note: torchaudio may not be available for all ROCm versions
+# The app only requires torch for Whisper, so torchaudio is optional
+
+# Alternative installation if the above fails:
+# pip install torch --index-url https://download.pytorch.org/whl/rocm5.4.2
+# pip install torchvision --index-url https://download.pytorch.org/whl/rocm5.4.2
+
+# Compatible AMD GPUs: RX 5000 series and newer, Vega, NAVI, RDNA architectures

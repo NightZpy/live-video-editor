@@ -1,24 +1,43 @@
 """
 Progress Dialog Component
-Phase 2.5 - Progress Window UI
+Real-time progress tracking for video export operations
 """
 
 import customtkinter as ctk
+import tkinter.filedialog as filedialog
+import tkinter.messagebox as messagebox
+from typing import Optional, Dict, List
+from pathlib import Path
 from ..styles.theme import get_frame_style, get_text_style, get_button_style, COLORS, SPACING
+from ...core.video_processor import ThreadedVideoProcessor, VideoExportProgress
+
 
 class ProgressDialog(ctk.CTkToplevel):
-    def __init__(self, parent, export_type="single", **kwargs):
+    def __init__(self, parent, video_path: str = "", cut_data: Optional[Dict] = None, 
+                 cuts_data: Optional[List[Dict]] = None, output_dir: str = "", 
+                 quality: str = "original", **kwargs):
         super().__init__(parent, **kwargs)
         
         # Configuration
-        self.export_type = export_type  # "single" or "all"
-        self.progress_value = 0.0
-        self.current_file_index = 0
-        self.total_files = 1 if export_type == "single" else 4
-        self.is_cancelled = False
+        self.video_path = video_path
+        self.cut_data = cut_data  # For single export
+        self.cuts_data = cuts_data  # For batch export
+        self.output_dir = output_dir or str(Path.home() / "Downloads")
+        self.quality = quality
         
-        # Mock file data
-        self.files_to_process = self.get_mock_files()
+        # Determine export type
+        self.export_type = "single" if cut_data else "batch"
+        self.total_files = 1 if self.export_type == "single" else len(cuts_data or [])
+        
+        # Initialize video processor - use synchronous version for now to avoid segfault
+        from ...core.video_processor import VideoProcessor
+        self.processor = VideoProcessor()
+        self.processor.set_progress_callback(self.update_progress)
+        self.processor.set_completion_callback(self.export_completed)
+        
+        # UI state
+        self.is_completed = False
+        self.is_cancelled = False
         
         # Configure window
         self.setup_window()
@@ -26,14 +45,14 @@ class ProgressDialog(ctk.CTkToplevel):
         # Setup UI
         self.setup_ui()
         
-        # Start simulation
-        self.start_progress_simulation()
-    
+        # Select output directory before starting
+        self.select_output_directory()
+
     def setup_window(self):
         """Configure the progress window"""
-        # Window properties
-        self.title("Exporting Video Cuts")
-        self.geometry("450x300")
+        title = f"Exporting {'1 Cut' if self.export_type == 'single' else f'{self.total_files} Cuts'}"
+        self.title(title)
+        self.geometry("500x350")
         self.resizable(False, False)
         
         # Center on parent
@@ -46,7 +65,10 @@ class ProgressDialog(ctk.CTkToplevel):
         # Configure grid
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
-    
+        
+        # Handle window close
+        self.protocol("WM_DELETE_WINDOW", self.on_close_window)
+
     def center_on_parent(self):
         """Center the dialog on the parent window"""
         self.update_idletasks()
@@ -58,23 +80,11 @@ class ProgressDialog(ctk.CTkToplevel):
         parent_height = self.master.winfo_height()
         
         # Calculate center position
-        x = parent_x + (parent_width // 2) - (450 // 2)
-        y = parent_y + (parent_height // 2) - (300 // 2)
+        x = parent_x + (parent_width // 2) - (250)
+        y = parent_y + (parent_height // 2) - (175)
         
-        self.geometry(f"450x300+{x}+{y}")
-    
-    def get_mock_files(self):
-        """Get mock files for simulation"""
-        if self.export_type == "single":
-            return ["Introduction.mp4"]
-        else:
-            return [
-                "Introduction.mp4",
-                "Main_Content.mp4", 
-                "Examples.mp4",
-                "Conclusion.mp4"
-            ]
-    
+        self.geometry(f"500x350+{x}+{y}")
+
     def setup_ui(self):
         """Setup the progress dialog UI"""
         # Header section
@@ -85,7 +95,7 @@ class ProgressDialog(ctk.CTkToplevel):
         
         # Controls section
         self.create_controls()
-    
+
     def create_header(self):
         """Create the header with title and icon"""
         header_frame_style = get_frame_style("card")
@@ -100,92 +110,86 @@ class ProgressDialog(ctk.CTkToplevel):
             text="🎬",
             font=("Segoe UI", 32)
         )
-        icon_label.grid(row=0, column=0, padx=(SPACING["lg"], SPACING["md"]), pady=SPACING["md"])
+        icon_label.grid(row=0, column=0, padx=SPACING["lg"], pady=SPACING["md"])
         
         # Title and subtitle
         title_frame = ctk.CTkFrame(header_frame, fg_color="transparent")
-        title_frame.grid(row=0, column=1, sticky="ew", pady=SPACING["md"])
+        title_frame.grid(row=0, column=1, sticky="ew", padx=SPACING["md"], pady=SPACING["md"])
         title_frame.grid_columnconfigure(0, weight=1)
         
-        # Main title
         title_style = get_text_style("header")
-        title_label = ctk.CTkLabel(
-            title_frame,
-            text="Exporting Video Cuts",
-            **title_style
-        )
-        title_label.grid(row=0, column=0, sticky="w")
+        title_text = "Export Video Cut" if self.export_type == "single" else f"Export {self.total_files} Video Cuts"
+        self.title_label = ctk.CTkLabel(title_frame, text=title_text, **title_style)
+        self.title_label.grid(row=0, column=0, sticky="w")
         
-        # Subtitle
-        subtitle_style = get_text_style("secondary")
-        export_text = "Single cut" if self.export_type == "single" else f"{self.total_files} cuts"
-        subtitle_label = ctk.CTkLabel(
-            title_frame,
-            text=f"Processing {export_text}...",
+        subtitle_style = get_text_style("small")
+        self.subtitle_label = ctk.CTkLabel(
+            title_frame, 
+            text="Preparing export...", 
             **subtitle_style
         )
-        subtitle_label.grid(row=1, column=0, sticky="w")
-    
+        self.subtitle_label.grid(row=1, column=0, sticky="w", pady=(SPACING["xs"], 0))
+
     def create_progress_section(self):
-        """Create the progress section"""
-        progress_frame_style = get_frame_style("default")
+        """Create the progress display section"""
+        progress_frame_style = get_frame_style("card")
         progress_frame = ctk.CTkFrame(self, **progress_frame_style)
         progress_frame.grid(row=1, column=0, sticky="nsew", padx=SPACING["lg"], pady=(0, SPACING["md"]))
         progress_frame.grid_columnconfigure(0, weight=1)
         
-        # Current file being processed
-        self.current_file_label = ctk.CTkLabel(
-            progress_frame,
-            text="Preparing...",
-            font=("Segoe UI", 14, "bold"),
-            text_color=COLORS["text"]
-        )
-        self.current_file_label.grid(row=0, column=0, pady=(SPACING["lg"], SPACING["md"]))
-        
         # Progress bar
         self.progress_bar = ctk.CTkProgressBar(
             progress_frame,
-            width=350,
             height=20,
-            progress_color=COLORS["accent"],
-            fg_color=COLORS["input_bg"]
+            progress_color=COLORS["accent"]
         )
-        self.progress_bar.grid(row=1, column=0, pady=SPACING["md"])
+        self.progress_bar.grid(row=0, column=0, sticky="ew", padx=SPACING["lg"], pady=SPACING["lg"])
         self.progress_bar.set(0)
         
-        # Percentage label - more visible
+        # Progress percentage
         self.percentage_label = ctk.CTkLabel(
             progress_frame,
             text="0%",
-            font=("Segoe UI", 24, "bold"),
-            text_color=COLORS["accent"]  # Use accent color to stand out
+            font=("Segoe UI", 18, "bold"),
+            text_color=COLORS["accent"]
         )
-        self.percentage_label.grid(row=2, column=0, pady=(SPACING["md"], SPACING["md"]))
+        self.percentage_label.grid(row=1, column=0, pady=(0, SPACING["md"]))
+        
+        # Current file being processed
+        self.current_file_label = ctk.CTkLabel(
+            progress_frame,
+            text="Initializing...",
+            font=("Segoe UI", 14),
+            text_color=COLORS["text"]
+        )
+        self.current_file_label.grid(row=2, column=0, pady=(0, SPACING["sm"]))
         
         # File counter
         self.file_counter_label = ctk.CTkLabel(
             progress_frame,
             text=f"File 0 of {self.total_files}",
-            **get_text_style("secondary")
+            font=("Segoe UI", 12),
+            text_color=COLORS["text_secondary"]
         )
-        self.file_counter_label.grid(row=3, column=0, pady=SPACING["xs"])
+        self.file_counter_label.grid(row=3, column=0, pady=(0, SPACING["sm"]))
         
         # Time estimate
         self.time_estimate_label = ctk.CTkLabel(
             progress_frame,
-            text="Calculating time...",
-            **get_text_style("small")
+            text="Calculating time remaining...",
+            font=("Segoe UI", 12),
+            text_color=COLORS["text_secondary"]
         )
-        self.time_estimate_label.grid(row=4, column=0, pady=(SPACING["xs"], SPACING["lg"]))
-    
+        self.time_estimate_label.grid(row=4, column=0, pady=(0, SPACING["lg"]))
+
     def create_controls(self):
         """Create control buttons"""
         controls_frame = ctk.CTkFrame(self, fg_color="transparent")
         controls_frame.grid(row=2, column=0, sticky="ew", padx=SPACING["lg"], pady=(0, SPACING["lg"]))
-        controls_frame.grid_columnconfigure((0, 1), weight=1)
+        controls_frame.grid_columnconfigure(0, weight=1)
         
         # Cancel button
-        cancel_btn_style = get_button_style("error")
+        cancel_btn_style = get_button_style("secondary")
         self.cancel_btn = ctk.CTkButton(
             controls_frame,
             text="Cancel",
@@ -193,94 +197,160 @@ class ProgressDialog(ctk.CTkToplevel):
             command=self.on_cancel,
             **cancel_btn_style
         )
-        self.cancel_btn.grid(row=0, column=0, padx=SPACING["md"], pady=SPACING["md"], sticky="w")
-        
-        # Minimize button
-        minimize_btn_style = get_button_style("secondary")
-        self.minimize_btn = ctk.CTkButton(
-            controls_frame,
-            text="Minimize",
-            width=120,
-            command=self.on_minimize,
-            **minimize_btn_style
+        self.cancel_btn.grid(row=0, column=0, padx=SPACING["md"], pady=SPACING["md"])
+
+    def select_output_directory(self):
+        """Let user select output directory before starting export"""
+        # Ask user to select output directory
+        selected_dir = filedialog.askdirectory(
+            title="Select Export Directory",
+            initialdir=self.output_dir
         )
-        self.minimize_btn.grid(row=0, column=1, padx=SPACING["md"], pady=SPACING["md"], sticky="e")
-    
-    def start_progress_simulation(self):
-        """Start the progress simulation"""
-        print("🚀 Starting progress simulation")
-        # Small delay to ensure UI is ready
-        self.after(200, self.simulate_progress)
-    
-    def simulate_progress(self):
-        """Simulate export progress"""
-        if self.is_cancelled:
-            return
+        
+        if selected_dir:
+            self.output_dir = selected_dir
+            self.start_export()
+        else:
+            # User cancelled directory selection
+            self.on_close_window()
+
+    def start_export(self):
+        """Start the export process"""
+        try:
+            if self.export_type == "single" and self.cut_data:
+                print(f"🎬 Starting single cut export...")
+                print(f"Video: {self.video_path}")
+                print(f"Cut data: {self.cut_data}")
+                print(f"Output dir: {self.output_dir}")
+                
+                # Run export synchronously but with UI updates
+                self.after(100, self.run_single_export)
             
-        # Calculate progress increment
-        total_steps = 100
-        increment = 1.0 / total_steps
+            elif self.export_type == "batch" and self.cuts_data:
+                print(f"🎬 Starting batch export...")
+                print(f"Video: {self.video_path}")
+                print(f"Cuts count: {len(self.cuts_data)}")
+                print(f"Output dir: {self.output_dir}")
+                
+                # Run export synchronously but with UI updates
+                self.after(100, self.run_batch_export)
+            else:
+                messagebox.showerror("Error", "No valid export data provided")
+                self.on_close_window()
+                
+        except Exception as e:
+            print(f"❌ Error starting export: {e}")
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("Export Error", f"Failed to start export: {str(e)}")
+            self.on_close_window()
+    
+    def run_single_export(self):
+        """Run single export synchronously"""
+        try:
+            success = self.processor.export_single_cut(
+                self.video_path,
+                self.cut_data,
+                self.output_dir,
+                self.quality
+            )
+            if success:
+                print("✅ Single export completed successfully")
+            else:
+                print("❌ Single export failed")
+        except Exception as e:
+            print(f"❌ Error in single export: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def run_batch_export(self):
+        """Run batch export synchronously"""
+        try:
+            success = self.processor.export_batch_cuts(
+                self.video_path,
+                self.cuts_data,
+                self.output_dir,
+                self.quality
+            )
+            if success:
+                print("✅ Batch export completed successfully")
+            else:
+                print("❌ Batch export failed")
+        except Exception as e:
+            print(f"❌ Error in batch export: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def update_progress(self, progress: VideoExportProgress):
+        """Update UI with current progress"""
+        # Update progress bar and percentage
+        self.progress_bar.set(progress.progress_percent / 100.0)
+        self.percentage_label.configure(text=f"{int(progress.progress_percent)}%")
         
-        # Update progress
-        self.progress_value += increment
-        self.progress_bar.set(self.progress_value)
+        # Update current file
+        if progress.current_file:
+            self.current_file_label.configure(text=f"Processing: {progress.current_file}")
         
-        # Update percentage
-        percentage = int(self.progress_value * 100)
-        self.percentage_label.configure(text=f"{percentage}%")
-        print(f"📊 Progress: {percentage}%")  # Debug
-        
-        # Update current file based on progress
-        files_completed = int(self.progress_value * self.total_files)
-        if files_completed < self.total_files:
-            current_file = self.files_to_process[files_completed]
-            self.current_file_label.configure(text=f"Processing: {current_file}")
-            self.file_counter_label.configure(text=f"File {files_completed + 1} of {self.total_files}")
+        # Update file counter
+        self.file_counter_label.configure(text=f"File {progress.current_index} of {progress.total_files}")
         
         # Update time estimate
-        if percentage > 10:  # Start showing estimate after 10%
-            remaining_time = max(1, int((100 - percentage) * 0.1))  # Rough estimate
-            self.time_estimate_label.configure(text=f"Estimated time remaining: {remaining_time}s")
+        if progress.estimated_time_remaining > 0:
+            self.time_estimate_label.configure(
+                text=f"Estimated time remaining: {progress.estimated_time_remaining}s"
+            )
         
-        # Check if complete
-        if self.progress_value >= 1.0:
-            self.complete_export()
-        else:
-            # Continue simulation
-            self.after(50, self.simulate_progress)  # Update every 50ms for smooth animation
-    
-    def complete_export(self):
+        # Update status-specific UI
+        if progress.status == "error":
+            self.current_file_label.configure(text=f"❌ Error: {progress.error_message}")
+        elif progress.status == "cancelled":
+            self.current_file_label.configure(text="❌ Export Cancelled")
+
+    def export_completed(self, success: bool, message: str):
         """Handle export completion"""
-        self.current_file_label.configure(text="✅ Export Complete!")
-        self.percentage_label.configure(text="100%")
-        self.file_counter_label.configure(text=f"All {self.total_files} files processed")
-        self.time_estimate_label.configure(text="Export finished successfully")
+        self.is_completed = True
         
-        # Update buttons
-        self.cancel_btn.configure(text="Close", command=self.on_close)
-        self.minimize_btn.configure(state="disabled")
-        
-        # Auto-close after 3 seconds
-        self.after(3000, self.on_close)
-    
+        if success:
+            self.progress_bar.set(1.0)
+            self.percentage_label.configure(text="100%")
+            self.current_file_label.configure(text="✅ Export Complete!")
+            self.file_counter_label.configure(text=f"All {self.total_files} files processed")
+            self.time_estimate_label.configure(text=message)
+            
+            # Update button
+            self.cancel_btn.configure(text="Close", command=self.on_close_window)
+            
+            # Show success message
+            messagebox.showinfo("Export Complete", f"{message}\n\nFiles saved to:\n{self.output_dir}")
+            
+            # Keep dialog open with Close button (removed auto-close)
+        else:
+            self.current_file_label.configure(text=f"❌ Export Failed")
+            self.time_estimate_label.configure(text=message)
+            self.cancel_btn.configure(text="Close", command=self.on_close_window)
+            
+            # Show error message
+            messagebox.showerror("Export Failed", message)
+
     def on_cancel(self):
         """Handle cancel button"""
-        if self.progress_value >= 1.0:
-            # Export complete, close normally
-            self.on_close()
+        if self.is_completed:
+            self.on_close_window()
         else:
-            # Cancel export
+            # Cancel the export
+            self.processor.cancel_export()
             self.is_cancelled = True
-            self.current_file_label.configure(text="❌ Export Cancelled")
-            self.time_estimate_label.configure(text="Export was cancelled by user")
-            self.cancel_btn.configure(text="Close", command=self.on_close)
-            self.minimize_btn.configure(state="disabled")
-    
-    def on_minimize(self):
-        """Handle minimize button"""
-        self.iconify()
-    
-    def on_close(self):
-        """Handle close dialog"""
-        self.grab_release()
-        self.destroy()
+            self.current_file_label.configure(text="❌ Cancelling export...")
+            self.cancel_btn.configure(state="disabled")
+
+    def on_close_window(self):
+        """Handle window close"""
+        if not self.is_completed and not self.is_cancelled:
+            # Ask for confirmation if export is running
+            if messagebox.askyesno("Cancel Export", "Export is in progress. Are you sure you want to cancel?"):
+                self.processor.cancel_export()
+                self.grab_release()
+                self.destroy()
+        else:
+            self.grab_release()
+            self.destroy()

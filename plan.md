@@ -134,11 +134,37 @@ python-dotenv==1.0.0
 - No thumbnails or advanced features
 - Cut selection functionality
 
-#### 3.5 Basic Video Preview
-- Simple video player for selected cut
-- Play video from start time to end time of selected cut
-- Basic play/pause controls
-- Seek to cut start automatically
+#### 3.5 Basic Video Preview with Cut Playback
+##### 3.5.1 Video Player Backend Integration
+- Extend VideoPreviewComponent with OpenCV video player
+- Implement VideoPlayerManager class for efficient video handling
+- Load video file once and reuse for all cuts (memory optimization)
+- Frame extraction and display on tkinter Canvas
+
+##### 3.5.2 Playback Controls Implementation
+- Add functional Play/Pause/Stop buttons to VideoPreviewComponent
+- Implement play state management (playing/paused/stopped)
+- Add time display showing current position and cut duration
+- Keyboard shortcuts for space bar play/pause
+- Real video playback implementation (thread-safe streaming)
+
+##### 3.5.3 Interactive Timeline Enhancement
+- Replace static timeline markers with interactive Canvas-based timeline
+- Implement draggable start and end markers for cut editing
+- Add click-to-seek functionality on timeline
+- Real-time progress indicator during playback
+
+##### 3.5.4 Cut-Specific Playback Logic
+- Automatic seek to cut start time when cut is selected
+- Playback limited to cut duration (auto-stop at end time)
+- Loop playback option within cut boundaries
+- Preview frame display when paused
+
+##### 3.5.5 UI Integration and Events
+- Connect CutsListComponent selection to video preview
+- Update timeline markers when cut selection changes
+- Emit events for cut time modifications from timeline
+- Synchronize cut data between components
 
 ### PHASE 4: Advanced Core Functionality (Days 9-12)
 
@@ -297,19 +323,36 @@ hh:mm:ss - hh:mm:ss - title - description
 ### Phase 3 (Basic Core Functionality) 🔄
 - [DONE] Real video loading (.mp4 files)
 - [DONE] Real time file loading and parsing
-- [ ] Time processing and JSON conversion
-- [ ] Basic cuts list display
-- [ ] Basic video preview with cut playback
+- [DONE] Time processing and JSON conversion
+- [DONE] Basic cuts list display
+- [DONE] Basic video preview with cut playback
+  - [DONE] 3.5.1 Video Player Backend Integration
+  - [DONE] 3.5.2 Playback Controls Implementation
+    - [DONE] UI Controls (Play/Pause/Stop buttons)
+    - [DONE] Play state management
+    - [DONE] Time display
+    - [DONE] Keyboard shortcuts
+    - [DONE] Real video playback implementation (OpenCV + event-driven timing)
+  - [ ] 3.5.3 Interactive Timeline Enhancement
+  - [DONE] 3.5.4 Cut-Specific Playback Logic
+  - [DONE] 3.5.5 UI Integration and Events
 
-### Phase 4 ✅
-- [ ] Advanced FFmpeg integration
+### Phase 4 🔄
+- [DONE] Advanced FFmpeg integration
 - [ ] Enhanced time parser
 - [ ] LLM connection
 - [ ] Advanced validations
 
-### Phase 5 ✅
+### Phase 5 🔄
 - [ ] Interactive timeline
-- [ ] Export system
+- [DONE] Export system
+  - [DONE] Individual cut export with FFmpeg-python
+  - [DONE] Batch export for multiple cuts
+  - [DONE] Real-time progress tracking with ThreadedVideoProcessor
+  - [DONE] Output directory selection
+  - [DONE] Quality settings support (original, high, medium, low)
+  - [DONE] Error handling and cancellation support
+  - [DONE] UI integration with ProgressDialog
 - [ ] State management
 - [ ] Advanced video preview
 

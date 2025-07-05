@@ -7,6 +7,10 @@ Entry point for the application
 import sys
 import os
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
+
 # Add src directory to path for runtime
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 

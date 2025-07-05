@@ -1,0 +1,29 @@
+# Core dependencies for live-video-editor (cross-platform)
+customtkinter>=5.2.2
+ffmpeg-python==0.2.0
+opencv-python>=4.9.0
+Pillow>=10.0.1
+openai>=1.35.0
+python-dotenv==1.0.0
+tkinterdnd2>=0.3.0
+pygame>=2.5.0
+
+# Audio playback for video preview
+pygame>=2.5.0
+
+# AI/ML dependencies
+# PyTorch for CPU/NVIDIA GPU (default)
+torch>=2.7.0
+
+# For AMD GPU support, replace the above torch line with:
+# --index-url https://download.pytorch.org/whl/rocm5.7
+# torch>=2.7.0
+
+# Whisper for transcription
+git+https://github.com/openai/whisper.git
+
+# Faster-Whisper for optimized local transcription (optional but recommended)
+faster-whisper>=1.1.0
+
+# Optional: For better performance
+# numpy>=2.2.0  # Will be installed by torch/whisper automatically

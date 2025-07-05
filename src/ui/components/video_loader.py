@@ -13,6 +13,7 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
 from src.utils.video_utils import validate_and_extract_metadata
+from src.utils.data_cache import DataCacheManager
 from ..styles.theme import COLORS, FONTS, SPACING, get_frame_style, get_text_style, get_button_style
 
 # Try to import drag and drop - completely optional
@@ -30,6 +31,9 @@ class VideoLoaderComponent(ctk.CTkFrame):
         
         # Callback for when video is loaded
         self.on_video_loaded = on_video_loaded
+        
+        # Initialize cache manager
+        self.cache_manager = DataCacheManager()
         
         # State
         self.is_processing = False
@@ -54,7 +58,7 @@ class VideoLoaderComponent(ctk.CTkFrame):
         )
         self.drop_area.grid(row=0, column=0, sticky="nsew", padx=SPACING["xl"], pady=SPACING["xl"])
         self.drop_area.grid_columnconfigure(0, weight=1)
-        self.drop_area.grid_rowconfigure((0, 1, 2, 3, 4), weight=1)
+        self.drop_area.grid_rowconfigure((0, 1, 2, 3, 4, 5), weight=1)
         self.drop_area.grid_propagate(False)
         
         # Video icon (using text for now - we can add real icon later)
@@ -93,6 +97,16 @@ class VideoLoaderComponent(ctk.CTkFrame):
             **format_style
         )
         self.format_label.grid(row=4, column=0, pady=(SPACING["sm"], SPACING["lg"]))
+        
+        # Cache status label (initially hidden)
+        self.status_label = ctk.CTkLabel(
+            self.drop_area,
+            text="",
+            text_color="green",
+            font=(FONTS["main"][0], 12, "bold")
+        )
+        self.status_label.grid(row=5, column=0, pady=SPACING["sm"])
+        self.status_label.grid_remove()  # Hide initially
         
         # Make the entire drop area clickable
         self.drop_area.bind("<Button-1>", lambda e: self.handle_click_to_select())
@@ -135,6 +149,29 @@ class VideoLoaderComponent(ctk.CTkFrame):
         if not self.is_processing:
             self.drop_area.configure(border_color=COLORS["border"])
             self.drop_area.configure(border_width=1)
+    
+    def _check_cache_status(self, video_path: str) -> tuple[bool, bool]:
+        """
+        Verificar estado del caché para el video
+        
+        Returns:
+            tuple: (has_cuts_cache, has_transcription_cache)
+        """
+        try:
+            has_cuts = self.cache_manager.has_cuts_cache(video_path)
+            has_transcription = self.cache_manager.has_transcription_cache(video_path)
+            return has_cuts, has_transcription
+        except Exception as e:
+            print(f"⚠️ Error checking cache status: {e}")
+            return False, False
+    
+    def _show_cache_status(self, message: str):
+        """Mostrar mensaje de estado de caché en la UI"""
+        if message:
+            self.status_label.configure(text=message)
+            self.status_label.grid()  # Show the label
+        else:
+            self.status_label.grid_remove()  # Hide the label
     
     def handle_click_to_select(self):
         """Handle click to select file"""
@@ -231,8 +268,45 @@ class VideoLoaderComponent(ctk.CTkFrame):
         self.is_processing = False
     
     def proceed_to_next_phase(self):
-        """Proceed to the next phase with loaded video"""
-        if self.on_video_loaded and self.loaded_video_info:
+        """Proceed to the next phase with loaded video and cache checking"""
+        if not self.on_video_loaded or not self.loaded_video_info:
+            return
+        
+        video_path = self.loaded_video_info['file_path']  # Usar 'file_path' en lugar de 'video_path'
+        
+        # Verificar caché antes de continuar
+        has_cuts, has_transcription = self._check_cache_status(video_path)
+        
+        if has_cuts:
+            # Cargar cuts desde caché y ir directo al editor
+            print("🎯 Cuts cache found! Loading existing cuts...")
+            try:
+                cached_cuts = self.cache_manager.load_cuts(video_path)
+                
+                # Actualizar UI para mostrar mensaje de caché
+                self._show_cache_status("✅ Video ya procesado - Cargando cortes existentes")
+                
+                # Llamar callback con cuts cargados desde caché
+                self.on_video_loaded(self.loaded_video_info, cached_cuts=cached_cuts)
+                
+            except Exception as e:
+                print(f"⚠️ Failed to load cuts cache: {e}")
+                # Si falla la carga, continuar con flujo normal
+                self._show_cache_status("")
+                self.on_video_loaded(self.loaded_video_info)
+                
+        elif has_transcription:
+            # Hay transcripción disponible
+            print("📝 Transcription cache found!")
+            self._show_cache_status("⚡ Transcripción disponible - Análisis será más rápido")
+            
+            # Continuar al flujo normal pero con flag de transcripción disponible
+            self.on_video_loaded(self.loaded_video_info, has_transcription=True)
+            
+        else:
+            # Sin caché, flujo normal
+            print("🔄 No cache found. Will process from scratch...")
+            self._show_cache_status("")
             self.on_video_loaded(self.loaded_video_info)
 
 if __name__ == "__main__":

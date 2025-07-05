@@ -9,7 +9,7 @@ from .cuts_list import CutsListComponent
 from .video_preview import VideoPreviewComponent
 
 class MainEditorComponent(ctk.CTkFrame):
-    def __init__(self, parent, cuts_data=None, **kwargs):
+    def __init__(self, parent, cuts_data=None, video_info=None, thumbnail_cache=None, **kwargs):
         super().__init__(parent, **kwargs)
         
         # Configure grid - 30/70 split
@@ -17,15 +17,20 @@ class MainEditorComponent(ctk.CTkFrame):
         self.grid_columnconfigure(1, weight=7)  # Right panel (70%)
         self.grid_rowconfigure(0, weight=1)
         
-        # Store cuts data
+        # Store cuts data, video info, and thumbnail cache
         self.cuts_data = cuts_data or []
+        self.video_info = video_info
+        self.thumbnail_cache = thumbnail_cache
         
-        # Setup UI
+        # Setup UI first
         self.setup_ui()
         
-        # Load initial data
+        # Load initial data after UI is setup (so video is loaded first)
         if self.cuts_data:
             self.load_cuts_data()
+        else:
+            # Show message if no cuts data available
+            self.show_no_cuts_message()
     
     def setup_ui(self):
         """Setup the main editor interface"""
@@ -46,7 +51,9 @@ class MainEditorComponent(ctk.CTkFrame):
         # Cuts list component
         self.cuts_list = CutsListComponent(
             cuts_panel,
-            on_cut_selected=self.on_cut_selected
+            on_cut_selected=self.on_cut_selected,
+            video_info=self.video_info,
+            thumbnail_cache=self.thumbnail_cache
         )
         self.cuts_list.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
     
@@ -59,13 +66,86 @@ class MainEditorComponent(ctk.CTkFrame):
         preview_panel.grid_rowconfigure(0, weight=1)
         
         # Video preview component
-        self.video_preview = VideoPreviewComponent(preview_panel)
+        self.video_preview = VideoPreviewComponent(
+            preview_panel,
+            thumbnail_cache=self.thumbnail_cache
+        )
         self.video_preview.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        
+        # Load video if video_info is available
+        if self.video_info and 'file_path' in self.video_info:
+            self.video_preview.load_video(self.video_info['file_path'], self.video_info)
+            
+            # After loading video, check if there's a selected cut and load its preview
+            self.sync_selected_cut_with_preview()
     
+    def show_no_cuts_message(self):
+        """Show a message when no cuts data is available"""
+        # Clear existing content
+        for widget in self.winfo_children():
+            widget.destroy()
+        
+        # Create message frame
+        message_frame = ctk.CTkFrame(self, fg_color="transparent")
+        message_frame.grid(row=0, column=0, columnspan=2, sticky="nsew", padx=SPACING["lg"], pady=SPACING["lg"])
+        message_frame.grid_columnconfigure(0, weight=1)
+        message_frame.grid_rowconfigure(0, weight=1)
+        
+        # Message content
+        content_frame = ctk.CTkFrame(message_frame, **get_frame_style("card"))
+        content_frame.grid(row=0, column=0, sticky="", padx=SPACING["xl"], pady=SPACING["xl"])
+        
+        # Icon
+        icon_label = ctk.CTkLabel(
+            content_frame,
+            text="📋",
+            font=("Segoe UI", 48)
+        )
+        icon_label.grid(row=0, column=0, pady=(SPACING["xl"], SPACING["md"]))
+        
+        # Title
+        title_label = ctk.CTkLabel(
+            content_frame,
+            text="No Cuts Available",
+            **get_text_style("header")
+        )
+        title_label.grid(row=1, column=0, pady=SPACING["sm"])
+        
+        # Description
+        desc_label = ctk.CTkLabel(
+            content_frame,
+            text="Load a video and cut times to start editing.",
+            **get_text_style("secondary")
+        )
+        desc_label.grid(row=2, column=0, pady=(SPACING["sm"], SPACING["xl"]))
+
     def load_cuts_data(self):
-        """Load cuts data into the interface"""
+        """Load cuts data into the interface and sync with preview"""
         self.cuts_list.load_cuts(self.cuts_data)
-    
+        
+        # Schedule sync after a short delay to ensure video is fully loaded
+        self.after(100, self.sync_selected_cut_with_preview)
+
+    def sync_selected_cut_with_preview(self):
+        """Sync the selected cut from cuts list with video preview"""
+        # Get the currently selected cut from cuts list
+        if (hasattr(self.cuts_list, 'selected_cut_id') and 
+            self.cuts_list.selected_cut_id is not None and 
+            hasattr(self.cuts_list, 'cuts_data') and 
+            self.cuts_list.cuts_data):
+            
+            selected_index = self.cuts_list.selected_cut_id
+            if 0 <= selected_index < len(self.cuts_list.cuts_data):
+                selected_cut = self.cuts_list.cuts_data[selected_index]
+                print(f"🔄 Syncing selected cut with preview: {selected_cut.get('title', 'Unknown')} (Index: {selected_index})")
+                
+                # Update video preview with the selected cut
+                self.video_preview.update_cut_info(selected_cut)
+            else:
+                print(f"⚠️ Selected cut index {selected_index} out of range")
+        else:
+            print("📋 No cut selected to sync with preview")
+
     def on_cut_selected(self, cut_data, index):
         """Handle cut selection from the cuts list"""
         print(f"📝 Cut selected: {cut_data.get('title', 'Unknown')} (Index: {index})")

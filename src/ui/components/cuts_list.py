@@ -4,14 +4,18 @@ Main Editor - Left Panel with Cuts List
 """
 
 import customtkinter as ctk
+import tkinter as tk
+from PIL import Image, ImageTk
 from ..styles.theme import get_frame_style, get_text_style, get_button_style, COLORS, SPACING
 
 class CutsListComponent(ctk.CTkFrame):
-    def __init__(self, parent, on_cut_selected=None, **kwargs):
+    def __init__(self, parent, on_cut_selected=None, video_info=None, thumbnail_cache=None, **kwargs):
         super().__init__(parent, **kwargs)
         
         # Callback for when a cut is selected
         self.on_cut_selected = on_cut_selected
+        self.video_info = video_info
+        self.thumbnail_cache = thumbnail_cache
         
         # Configure grid
         self.grid_columnconfigure(0, weight=1)
@@ -36,7 +40,7 @@ class CutsListComponent(ctk.CTkFrame):
     def create_header(self):
         """Create header with title and counter"""
         header_frame_style = get_frame_style("card")
-        header_frame = ctk.CTkFrame(self, height=60, **header_frame_style)
+        header_frame = ctk.CTkFrame(self, height=80, **header_frame_style)
         header_frame.grid(row=0, column=0, sticky="ew", padx=SPACING["md"], pady=SPACING["md"])
         header_frame.grid_columnconfigure(0, weight=1)
         header_frame.grid_propagate(False)
@@ -48,7 +52,21 @@ class CutsListComponent(ctk.CTkFrame):
             text="Video Cuts",
             **title_style
         )
-        self.title_label.grid(row=0, column=0, pady=SPACING["md"])
+        self.title_label.grid(row=0, column=0, pady=(SPACING["md"], SPACING["xs"]))
+        
+        # Video info (if available)
+        if self.video_info:
+            video_name = self.video_info.get('filename', 'Unknown video')
+            video_duration = self.video_info.get('duration', 'Unknown duration')
+            video_info_text = f"📹 {video_name} • {video_duration}"
+            
+            video_info_style = get_text_style("small")
+            video_info_label = ctk.CTkLabel(
+                header_frame,
+                text=video_info_text,
+                **video_info_style
+            )
+            video_info_label.grid(row=1, column=0, pady=SPACING["xs"])
         
         # Counter
         counter_style = get_text_style("secondary")
@@ -57,7 +75,8 @@ class CutsListComponent(ctk.CTkFrame):
             text="0 cuts",
             **counter_style
         )
-        self.counter_label.grid(row=1, column=0, pady=(0, SPACING["sm"]))
+        counter_row = 2 if self.video_info else 1
+        self.counter_label.grid(row=counter_row, column=0, pady=(SPACING["xs"], SPACING["sm"]))
     
     def create_cuts_list(self):
         """Create scrollable cuts list"""
@@ -91,8 +110,8 @@ class CutsListComponent(ctk.CTkFrame):
             widget.destroy()
         self.cut_widgets.clear()
     
-    def create_cut_item(self, cut_data, index):
-        """Create a single cut item"""
+    def create_cut_item(self, cut_data, index, thumbnail_override=None):
+        """Create a single cut item with enhanced information display"""
         # Main cut frame
         cut_frame = ctk.CTkFrame(
             self.scrollable_frame,
@@ -103,12 +122,12 @@ class CutsListComponent(ctk.CTkFrame):
         )
         cut_frame.grid(row=index, column=0, sticky="ew", padx=SPACING["sm"], pady=SPACING["sm"])
         cut_frame.grid_columnconfigure(1, weight=1)
-        
+
         # Store reference and add click binding
         self.cut_widgets.append(cut_frame)
         cut_frame.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
-        
-        # Thumbnail placeholder
+
+        # Thumbnail with real video frame
         thumbnail = ctk.CTkFrame(
             cut_frame,
             width=80,
@@ -118,64 +137,112 @@ class CutsListComponent(ctk.CTkFrame):
         )
         thumbnail.grid(row=0, column=0, rowspan=3, padx=SPACING["md"], pady=SPACING["md"], sticky="ns")
         thumbnail.grid_propagate(False)
-        
-        # Thumbnail icon
-        thumb_icon = ctk.CTkLabel(
-            thumbnail,
-            text="🎬",
-            font=("Segoe UI", 20)
-        )
-        thumb_icon.grid(row=0, column=0, sticky="nsew")
-        thumb_icon.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
-        
+
+        # Try to get real video thumbnail
+        thumbnail_image = thumbnail_override  # Use provided thumbnail if available
+        if thumbnail_image is None and self.thumbnail_cache:
+            start_time = cut_data.get("start_time", cut_data.get("start", "00:00:00"))
+            thumbnail_image = self.thumbnail_cache.get_thumbnail(start_time)
+
+        if thumbnail_image:
+            try:
+                # Resize original frame to thumbnail size (80x60)
+                thumbnail_resized = thumbnail_image.resize((80, 60), Image.Resampling.LANCZOS)
+                photo_image = ImageTk.PhotoImage(thumbnail_resized)
+                thumb_label = tk.Label(
+                    thumbnail,
+                    image=photo_image,
+                    bg=COLORS["input_bg"],
+                    bd=0,
+                    highlightthickness=0
+                )
+                # Store reference to prevent garbage collection
+                if not hasattr(self, '_photo_images'):
+                    self._photo_images = []
+                self._photo_images.append(photo_image)
+                thumb_label.place(relx=0.5, rely=0.5, anchor="center")
+                thumb_label.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
+            except Exception as e:
+                print(f"⚠️ Error displaying thumbnail: {e}")
+                self._create_fallback_thumbnail_icon(thumbnail, cut_data, index)
+        else:
+            self._create_fallback_thumbnail_icon(thumbnail, cut_data, index)
+
         # Cut information
         info_frame = ctk.CTkFrame(cut_frame, fg_color="transparent")
         info_frame.grid(row=0, column=1, columnspan=2, sticky="ew", padx=(0, SPACING["md"]), pady=SPACING["sm"])
         info_frame.grid_columnconfigure(0, weight=1)
-        
-        # Title
+
+        # Title with type icon as prefix
+        title_frame = ctk.CTkFrame(info_frame, fg_color="transparent")
+        title_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(SPACING["sm"], SPACING["xs"]))
+        title_frame.grid_columnconfigure(0, weight=1)
+
         title_style = get_text_style("default")
+        # Get icon for type
+        content_type = cut_data.get("content_type", "unknown")
+        cut_type = cut_data.get("type", self._map_content_type_to_type(content_type))
+        if cut_type == "major_theme":
+            thumb_icon_text = "📚"
+        elif cut_type == "thematic_segment":
+            thumb_icon_text = "📖"
+        elif cut_type == "standard_clip":
+            thumb_icon_text = "🎬"
+        elif cut_type == "quick_insight":
+            thumb_icon_text = "⚡"
+        else:
+            thumb_icon_text = "🎥"
+        # Title with icon prefix
+        title_with_icon = f"{thumb_icon_text} {cut_data.get('title', f'Cut {index + 1}') }"
         title_label = ctk.CTkLabel(
-            info_frame,
-            text=cut_data.get("title", f"Cut {index + 1}"),
+            title_frame,
+            text=title_with_icon,
             **title_style
         )
-        title_label.grid(row=0, column=0, sticky="w", pady=(SPACING["sm"], SPACING["xs"]))
+        title_label.grid(row=0, column=0, sticky="w")
         title_label.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
-        
-        # Time range
-        time_style = get_text_style("small")
-        start_time = cut_data.get("start_time", "00:00:00")
-        end_time = cut_data.get("end_time", "00:00:00")
-        time_label = ctk.CTkLabel(
-            info_frame,
-            text=f"{start_time} - {end_time}",
-            **time_style
+
+        # Type badge (opcional, solo para algunos tipos)
+        if cut_type in ["major_theme", "highlight_clip"]:
+            badge_text = "THEME" if cut_type == "major_theme" else "CLIP"
+            badge_color = COLORS["accent"] if cut_type == "major_theme" else COLORS["accent"]
+            type_badge = ctk.CTkLabel(
+                title_frame,
+                text=badge_text,
+                font=("Segoe UI", 9, "bold"),
+                text_color="white",
+                fg_color=badge_color,
+                corner_radius=3,
+                width=50,
+                height=18
+            )
+            type_badge.grid(row=0, column=1, sticky="e", padx=(SPACING["sm"], 0))
+            type_badge.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
+            
+        return cut_frame
+
+    def _create_fallback_thumbnail_icon(self, parent, cut_data, index):
+        """Fallback: show icon in thumbnail area if no real frame available"""
+        content_type = cut_data.get("content_type", "unknown")
+        cut_type = cut_data.get("type", self._map_content_type_to_type(content_type))
+        if cut_type == "major_theme":
+            thumb_icon_text = "📚"
+        elif cut_type == "thematic_segment":
+            thumb_icon_text = "📖"
+        elif cut_type == "standard_clip":
+            thumb_icon_text = "🎬"
+        elif cut_type == "quick_insight":
+            thumb_icon_text = "⚡"
+        else:
+            thumb_icon_text = "🎥"
+        icon_label = ctk.CTkLabel(
+            parent,
+            text=thumb_icon_text,
+            font=("Segoe UI", 28),
+            text_color=COLORS["text_secondary"]
         )
-        time_label.grid(row=1, column=0, sticky="w", pady=SPACING["xs"])
-        time_label.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
-        
-        # Duration
-        duration = cut_data.get("duration", "00:00:00")
-        duration_label = ctk.CTkLabel(
-            info_frame,
-            text=f"Duration: {duration}",
-            **time_style
-        )
-        duration_label.grid(row=2, column=0, sticky="w", pady=(SPACING["xs"], SPACING["sm"]))
-        duration_label.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
-        
-        # Status indicator
-        status = cut_data.get("status", "ready")
-        status_color = COLORS["success"] if status == "ready" else COLORS["warning"]
-        status_label = ctk.CTkLabel(
-            info_frame,
-            text=f"● {status.title()}",
-            text_color=status_color,
-            font=("Segoe UI", 12)
-        )
-        status_label.grid(row=0, column=1, sticky="e", pady=(SPACING["sm"], SPACING["xs"]))
-        status_label.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
+        icon_label.place(relx=0.5, rely=0.5, anchor="center")
+        icon_label.bind("<Button-1>", lambda e, idx=index: self.select_cut(idx))
     
     def select_cut(self, index):
         """Select a cut and update visual feedback"""
@@ -209,10 +276,57 @@ class CutsListComponent(ctk.CTkFrame):
                 )
     
     def update_counter(self):
-        """Update the cuts counter"""
-        count = len(self.cuts_data)
-        self.counter_label.configure(text=f"{count} cut{'s' if count != 1 else ''}")
+        """Update the cuts counter with type breakdown"""
+        total_count = len(self.cuts_data)
+        
+        # Count by type
+        theme_count = len([cut for cut in self.cuts_data if cut.get("type") == "major_theme"])
+        clip_count = len([cut for cut in self.cuts_data if cut.get("type") == "highlight_clip"])
+        
+        # Count by social media value
+        high_value_count = len([cut for cut in self.cuts_data if cut.get("social_media_value") == "high"])
+        
+        if total_count == 0:
+            counter_text = "No cuts available"
+        else:
+            # Build counter text with breakdown
+            counter_parts = [f"{total_count} total"]
+            
+            if theme_count > 0:
+                counter_parts.append(f"{theme_count} themes")
+            if clip_count > 0:
+                counter_parts.append(f"{clip_count} clips")
+            if high_value_count > 0:
+                counter_parts.append(f"{high_value_count} high-value")
+                
+            counter_text = " • ".join(counter_parts)
+        
+        self.counter_label.configure(text=counter_text)
     
+    def _map_content_type_to_type(self, content_type: str) -> str:
+        """
+        Map content_type from JSON data to internal type system
+        
+        Args:
+            content_type: The content_type from JSON (e.g., "topic_segment", "concept_explanation")
+            
+        Returns:
+            Internal type string (e.g., "major_theme", "thematic_segment")
+        """
+        content_type_mapping = {
+            "topic_segment": "thematic_segment",
+            "concept_explanation": "standard_clip", 
+            "key_moment": "quick_insight",
+            "major_discussion": "major_theme",  # Map major discussions as themes
+            "major_theme": "major_theme",
+            "thematic_segment": "thematic_segment",
+            "standard_clip": "standard_clip",
+            "quick_insight": "quick_insight",
+            "highlight_clip": "standard_clip"
+        }
+        
+        return content_type_mapping.get(content_type, "standard_clip")
+
     def get_mock_cuts_data(self):
         """Generate mock cuts data for testing"""
         return [
@@ -253,3 +367,45 @@ class CutsListComponent(ctk.CTkFrame):
                 "status": "processing"
             }
         ]
+    
+    def refresh_cut_thumbnail(self, cut_id):
+        """Refresh the thumbnail for a specific cut after it has been regenerated"""
+        try:
+            # Find the cut in cuts_data by ID
+            cut_index = None
+            for i, cut_data in enumerate(self.cuts_data):
+                if cut_data.get('id') == cut_id:
+                    cut_index = i
+                    break
+            
+            if cut_index is not None and cut_index < len(self.cut_widgets):
+                # Force reload the thumbnail from cache and recreate the item
+                if self.thumbnail_cache:
+                    cut_data = self.cuts_data[cut_index]
+                    start_time = cut_data.get('start_time', cut_data.get('start', '00:00:00'))
+                    cached_frame = self.thumbnail_cache.get_thumbnail(start_time)
+                    
+                    if cached_frame is not None:
+                        # Remove the old widget
+                        old_frame = self.cut_widgets[cut_index]
+                        old_frame.destroy()
+                        
+                        # Create new cut item with updated thumbnail
+                        new_cut_frame = self.create_cut_item(cut_data, cut_index, thumbnail_override=cached_frame)
+                        
+                        # Replace in the list
+                        self.cut_widgets[cut_index] = new_cut_frame
+                        
+                        print(f"✅ Refreshed thumbnail for cut {cut_id}")
+                    else:
+                        print(f"⚠️ No cached thumbnail found for cut {cut_id}")
+            else:
+                print(f"⚠️ Cut not found for ID: {cut_id}")
+                
+        except Exception as e:
+            print(f"❌ Error refreshing thumbnail for cut {cut_id}: {e}")
+    
+    def recreate_cut_item(self, cut_frame, new_thumbnail_image):
+        """Recreate a cut item with updated thumbnail"""
+        # This method is now obsolete, functionality moved to refresh_cut_thumbnail
+        pass

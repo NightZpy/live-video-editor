@@ -31,6 +31,7 @@ class MainWindow(ctk.CTk):
         self.current_phase = "video_loading"
         self.loaded_video_info = None
         self.loaded_cuts_data = None
+        self.has_cached_transcription = False
         
         # Initialize UI
         self.setup_ui()
@@ -118,6 +119,10 @@ class MainWindow(ctk.CTk):
             on_option_selected=self.on_cut_times_option_selected
         )
         cut_times_input.grid(row=0, column=0, sticky="nsew", padx=SPACING["lg"], pady=SPACING["lg"])
+        
+        # Pass cache information to the component if it supports it
+        if hasattr(cut_times_input, 'set_cache_status'):
+            cut_times_input.set_cache_status(self.has_cached_transcription)
     
     def show_manual_input_phase(self):
         """Show manual input phase"""
@@ -129,17 +134,98 @@ class MainWindow(ctk.CTk):
     
     def show_main_editor_phase(self):
         """Show main editor phase"""
-        main_editor = MainEditorComponent(self.content_frame)
+        # Convert loaded cuts data to the format expected by MainEditorComponent
+        cuts_data = self._convert_cuts_data_for_editor(self.loaded_cuts_data)
+        
+        # Create thumbnail cache for video frames
+        thumbnail_cache = None
+        if self.loaded_video_info and cuts_data:
+            from ..utils.thumbnail_cache import create_thumbnail_cache
+            video_path = self.loaded_video_info.get('file_path')
+            if video_path:
+                print(f"🎬 Creating frame cache for {len(cuts_data)} cuts...")
+                thumbnail_cache = create_thumbnail_cache(video_path, cuts_data)
+                if thumbnail_cache:
+                    print(f"✅ Frame cache created successfully")
+                else:
+                    print("⚠️ Failed to create frame cache, using fallback icons")
+        
+        main_editor = MainEditorComponent(
+            self.content_frame, 
+            cuts_data=cuts_data,
+            video_info=self.loaded_video_info,
+            thumbnail_cache=thumbnail_cache
+        )
         main_editor.grid(row=0, column=0, sticky="nsew")
-        # Load mock data for testing
-        main_editor.set_mock_data()
+        
+        # Store reference for potential updates
+        self.main_editor = main_editor
     
-    def on_video_loaded(self, video_info):
-        """Handle video loaded event"""
+    def _convert_cuts_data_for_editor(self, cuts_data):
+        """Convert loaded cuts data to the format expected by MainEditorComponent"""
+        if not cuts_data or 'cuts' not in cuts_data:
+            return []
+        
+        # Convert from text_utils format to UI format
+        converted_cuts = []
+        for cut in cuts_data['cuts']:
+            converted_cut = {
+                "id": cut.get("id"),
+                "title": cut.get("title", f"Cut {cut.get('id', 1)}"),
+                "description": cut.get("description", ""),
+                "start_time": cut.get("start", "00:00:00"),
+                "end_time": cut.get("end", "00:00:00"),
+                "duration": cut.get("duration", "00:00:00"),
+                "content_type": cut.get("content_type", "unknown"),  # Preserve content_type from JSON
+                "quality_score": cut.get("quality_score", "unknown"),  # Preserve quality_score
+                "social_media_value": cut.get("quality_score", "unknown"),  # Map quality_score to social_media_value
+                "status": "ready"  # Default status for parsed cuts
+            }
+            converted_cuts.append(converted_cut)
+        
+        return converted_cuts
+    
+    def on_video_loaded(self, video_info, cached_cuts=None, has_transcription=False):
+        """
+        Handle video loaded event with cache verification
+        
+        Args:
+            video_info: Información del video
+            cached_cuts: Cuts cargados desde caché (si existen)
+            has_transcription: Si existe transcripción en caché
+        """
         self.loaded_video_info = video_info
-        self.current_phase = "cut_times_input"
+        
+        if cached_cuts:
+            # Ir directo al editor principal con cuts cargados
+            print("🎯 Loading cuts from cache, going directly to main editor")
+            self.loaded_cuts_data = cached_cuts
+            self._go_to_main_editor()
+            
+        elif has_transcription:
+            # Ir a ventana de selección con indicador de transcripción disponible
+            print("📝 Transcription available, going to input selection with indicator")
+            self._go_to_cut_times_input(has_cached_transcription=True)
+            
+        else:
+            # Flujo normal
+            print("🔄 No cache, proceeding with normal flow")
+            self._go_to_cut_times_input()
+    
+    def _go_to_main_editor(self):
+        """Navigate directly to main editor"""
+        self.current_phase = "main_editor"
         self.show_current_phase()
-        print(f"📹 Video loaded: {video_info['filename']} ({video_info['duration']}) - Moving to cut times input phase")
+        if self.loaded_video_info:
+            print(f"📹 Video loaded: {self.loaded_video_info['filename']} - Going directly to main editor")
+    
+    def _go_to_cut_times_input(self, has_cached_transcription=False):
+        """Navigate to cut times input with cache information"""
+        self.current_phase = "cut_times_input"
+        self.has_cached_transcription = has_cached_transcription  # Store for later use
+        self.show_current_phase()
+        if self.loaded_video_info:
+            print(f"📹 Video loaded: {self.loaded_video_info['filename']} - Moving to cut times input phase")
     
     def on_cut_times_option_selected(self, option, data=None):
         """Handle cut times option selection"""
@@ -159,9 +245,16 @@ class MainWindow(ctk.CTk):
             else:
                 print("📄 File upload selected but no data provided")
         elif option == "automatic_analysis":
-            api_key = data.get('api_key', 'N/A') if data else 'N/A'
-            print(f"🤖 AI analysis selected with API key: {api_key}")
-            # TODO: Implement AI analysis in Phase 4
+            if data:
+                # AI analysis was successfully completed
+                self.loaded_cuts_data = data
+                print(f"🤖 AI analysis completed: {data.get('video_info', {}).get('total_cuts', 0)} cuts generated")
+                print(f"🤖 Moving to main editor with AI-generated cuts")
+                # Skip manual input and go directly to main editor
+                self.current_phase = "main_editor"
+                self.show_current_phase()
+            else:
+                print("🤖 AI analysis selected but no data provided")
     
     def on_manual_input_complete(self, action, data=None):
         """Handle manual input completion"""
